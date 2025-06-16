@@ -19,7 +19,7 @@ import {
   LogOut,
 } from "lucide-react";
 // Import Supabase client directly
-import supabase from "@/lib/supabaseClient";
+import { supabase } from "@/utils/supabase/client";
 import * as Avatar from "@radix-ui/react-avatar";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { motion } from "framer-motion";
@@ -60,7 +60,7 @@ export function Layout({ children, role = "admin" }: LayoutProps) {
 
       // Cleanup listener on unmount
       return () => {
-        authListener.subscription.unsubscribe();
+        authListener?.subscription.unsubscribe();
       };
     };
 

@@ -4,35 +4,59 @@ import { ToastProvider } from "@/components/ToastProvider";
 import { Layout } from "@/components/Layout";
 import { useRouter } from "next/router";
 import type { AppProps } from "next/app";
-import { SessionContextProvider } from "@supabase/auth-helpers-react";
-import supabase from "@/lib/supabaseClient";
+import { useEffect, useState } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 export default function App({ Component, pageProps }: AppProps) {
   const router = useRouter();
-  const isLandingPage = router.pathname === "/";
-  const isAuthPage = router.pathname.startsWith("/auth/");
+  const [mounted, setMounted] = useState(false);
+  const [queryClient] = useState(() => new QueryClient());
 
-  // Determine user role based on URL path
-  let role: "admin" | "retailer" | "agent" = "admin";
-  if (router.pathname.startsWith("/retailer")) {
-    role = "retailer";
-  } else if (router.pathname.startsWith("/agent")) {
-    role = "agent";
+  // Only show the application after first client-side render to avoid hydration mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Check for portal pages (new portal routing structure)
+  const isPortalAuthPage = router.pathname.startsWith("/portal/") && router.pathname.endsWith("/auth");
+
+  // Original checks
+  const isLandingPage = router.pathname === "/";
+  const isAuthPage = router.pathname.startsWith("/auth") || isPortalAuthPage;
+  const is404Page = router.pathname === "/404";
+
+  // Render a loader initially before client-side code runs
+  if (!mounted) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
   }
 
-  return (
-    <ThemeProvider attribute="class">
-      <SessionContextProvider supabaseClient={supabase}>
-        <ToastProvider>
-          {isLandingPage || isAuthPage ? (
+  // For auth pages, landing page, and 404 page, render without Layout
+  if (isAuthPage || isLandingPage || is404Page) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider attribute="class">
+          <ToastProvider>
             <Component {...pageProps} />
-          ) : (
-            <Layout role={role}>
-              <Component {...pageProps} />
-            </Layout>
-          )}
+          </ToastProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
+    );
+  }
+
+  // For protected pages, use Layout
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider attribute="class">
+        <ToastProvider>
+          <Layout role="agent">
+            <Component {...pageProps} />
+          </Layout>
         </ToastProvider>
-      </SessionContextProvider>
-    </ThemeProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
   );
 }

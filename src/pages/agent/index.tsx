@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Users, TrendingUp, Activity, ChevronRight } from "lucide-react";
 import { motion } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
 
 import { StatsTile } from "@/components/ui/stats-tile";
 import { ChartPlaceholder } from "@/components/ui/chart-placeholder";
@@ -11,16 +12,37 @@ import {
   CarouselNext,
   CarouselPrevious,
 } from "@/components/ui/carousel";
-import { agents, retailers, getAgentCommissionSummary } from "@/lib/MockData";
 import { cn } from "@/utils/cn";
 import useRequireRole from "@/hooks/useRequireRole";
+import { fetchMyRetailers, fetchAgentSummary, fetchAgentStatements, type AgentStatement } from "@/actions/agentActions";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function AgentDashboard() {
   // Protect this route - only allow agent role
-  const { isLoading } = useRequireRole("agent");
+  const { isLoading: isAuthLoading } = useRequireRole("agent");
+  const { user } = useAuth();
 
-  // Show loading state while checking authentication
-  if (isLoading) {
+  // Fetch agent data
+  const { data: retailersData, isLoading: isRetailersLoading } = useQuery({
+    queryKey: ["agent-retailers", user?.id],
+    queryFn: () => fetchMyRetailers(user?.id || ""),
+    enabled: !!user?.id,
+  });
+
+  const { data: summaryData, isLoading: isSummaryLoading } = useQuery({
+    queryKey: ["agent-summary", user?.id],
+    queryFn: () => fetchAgentSummary(user?.id || ""),
+    enabled: !!user?.id,
+  });
+
+  const { data: statementsData, isLoading: isStatementsLoading } = useQuery({
+    queryKey: ["agent-statements", user?.id],
+    queryFn: () => fetchAgentStatements(user?.id || "", {}),
+    enabled: !!user?.id,
+  });
+
+  // Show loading state while checking authentication or loading data
+  if (isAuthLoading || isRetailersLoading || isSummaryLoading || isStatementsLoading) {
     return (
       <div className="flex h-full w-full items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -28,17 +50,14 @@ export default function AgentDashboard() {
       </div>
     );
   }
-  // Get the first active agent for demo purposes
-  const agent = agents.find((a) => a.status === "active") || agents[0];
 
-  // Get agent retailers
-  const agentRetailers = retailers.filter((r) => r.agentId === agent.id);
+  // Get the retailers data
+  const retailers = retailersData?.data || [];
+  const summary = summaryData?.data;
+  const statements = statementsData?.data || [];
 
-  // Get commission summary for this agent
-  const commissionSummary = getAgentCommissionSummary(agent.id);
-
-  // Top performing retailers (sort by available balance in this demo)
-  const topRetailers = [...agentRetailers]
+  // Top performing retailers (sort by available balance)
+  const topRetailers = [...retailers]
     .sort((a, b) => b.balance - a.balance)
     .slice(0, 5);
 
@@ -49,7 +68,7 @@ export default function AgentDashboard() {
           Agent Dashboard
         </h1>
         <p className="text-muted-foreground">
-          Welcome back, {agent.name}. Here's an overview of your portfolio.
+          Welcome back, {user?.user_metadata?.full_name}. Here's an overview of your portfolio.
         </p>
       </div>
 
@@ -57,29 +76,29 @@ export default function AgentDashboard() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatsTile
           label="My Retailers"
-          value={agent.retailers.toString()}
+          value={summary?.retailer_count.toString() || "0"}
           icon={Users}
           intent="info"
           subtitle="Active accounts"
         />
         <StatsTile
           label="Commission (MTD)"
-          value={`R ${commissionSummary.mtdCommission.toFixed(2)}`}
+          value={`R ${summary?.mtd_commission.toFixed(2) || "0.00"}`}
           icon={TrendingUp}
           intent="success"
-          subtitle={`${commissionSummary.mtdSalesCount} transactions`}
+          subtitle={`${summary?.mtd_sales || 0} transactions`}
         />
         <StatsTile
-          label="Previous Month"
-          value={`R ${commissionSummary.prevMonthCommission.toFixed(2)}`}
+          label="YTD Commission"
+          value={`R ${summary?.ytd_commission.toFixed(2) || "0.00"}`}
           icon={Activity}
           intent="warning"
-          subtitle={`${commissionSummary.prevMonthSalesCount} transactions`}
+          subtitle="Year to date"
         />
       </div>
 
       {/* Commission Chart */}
-      <motion.div
+      {/* <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
@@ -89,7 +108,7 @@ export default function AgentDashboard() {
           description="Monthly commission earnings breakdown"
           height="lg"
         />
-      </motion.div>
+      </motion.div> */}
 
       {/* Top Retailers Carousel */}
       <div className="space-y-4">
@@ -122,7 +141,7 @@ export default function AgentDashboard() {
                           {retailer.name}
                         </h3>
                         <p className="text-xs text-muted-foreground">
-                          {retailer.contact}
+                          {retailer.location}
                         </p>
                       </div>
                     </div>
@@ -137,7 +156,7 @@ export default function AgentDashboard() {
                       <div>
                         <p className="text-muted-foreground">Commission</p>
                         <p className="font-semibold">
-                          R {retailer.commission.toFixed(2)}
+                          R {retailer.commission_balance.toFixed(2)}
                         </p>
                       </div>
                     </div>
@@ -182,54 +201,39 @@ export default function AgentDashboard() {
       </div>
 
       {/* Recent Activity */}
-      <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
+      {/* <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
         <h2 className="mb-4 text-xl font-semibold">Recent Activity</h2>
 
         <div className="space-y-4">
-          <div className="flex items-center gap-4 rounded-lg bg-muted/40 p-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-500/10 text-green-500">
-              <TrendingUp className="h-5 w-5" />
+          {statements.slice(0, 3).map((statement: AgentStatement) => (
+            <div key={statement.id} className="flex items-center gap-4 rounded-lg bg-muted/40 p-3">
+              <div className={cn(
+                "flex h-10 w-10 items-center justify-center rounded-full",
+                statement.type === "commission_credit" ? "bg-green-500/10 text-green-500" :
+                statement.type === "commission_payout" ? "bg-amber-500/10 text-amber-500" :
+                "bg-blue-500/10 text-blue-500"
+              )}>
+                {statement.type === "commission_credit" ? (
+                  <TrendingUp className="h-5 w-5" />
+                ) : statement.type === "commission_payout" ? (
+                  <Activity className="h-5 w-5" />
+                ) : (
+                  <Users className="h-5 w-5" />
+                )}
+              </div>
+              <div className="flex-1">
+                <h3 className="font-medium capitalize">
+                  {statement.type.replace(/_/g, " ")}
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  {statement.retailer_name ? `From ${statement.retailer_name}` : statement.notes}
+                </p>
+              </div>
+              <div className="text-right text-sm text-muted-foreground">
+                {new Date(statement.created_at).toLocaleDateString()}
+              </div>
             </div>
-            <div className="flex-1">
-              <h3 className="font-medium">New Commission Earned</h3>
-              <p className="text-sm text-muted-foreground">
-                R 45.50 from Soweto Corner Shop
-              </p>
-            </div>
-            <div className="text-right text-sm text-muted-foreground">
-              Today, 10:24 AM
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4 rounded-lg bg-muted/40 p-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-500/10 text-blue-500">
-              <Users className="h-5 w-5" />
-            </div>
-            <div className="flex-1">
-              <h3 className="font-medium">New Retailer Onboarded</h3>
-              <p className="text-sm text-muted-foreground">
-                Alex Mini Mart joined your network
-              </p>
-            </div>
-            <div className="text-right text-sm text-muted-foreground">
-              Yesterday, 2:15 PM
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4 rounded-lg bg-muted/40 p-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/10 text-amber-500">
-              <Activity className="h-5 w-5" />
-            </div>
-            <div className="flex-1">
-              <h3 className="font-medium">Commission Payout</h3>
-              <p className="text-sm text-muted-foreground">
-                R 350.00 transferred to your account
-              </p>
-            </div>
-            <div className="text-right text-sm text-muted-foreground">
-              May 1, 2025
-            </div>
-          </div>
+          ))}
         </div>
 
         <div className="mt-4 text-center">
@@ -238,7 +242,7 @@ export default function AgentDashboard() {
             <ChevronRight className="ml-1 h-4 w-4" />
           </button>
         </div>
-      </div>
+      </div> */}
     </div>
   );
 }
