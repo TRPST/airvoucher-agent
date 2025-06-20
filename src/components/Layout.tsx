@@ -79,55 +79,7 @@ export function Layout({ children, role = "admin" }: LayoutProps) {
 
   // Generate navigation items based on user role
   const getNavItems = (role: UserRole) => {
-    switch (role) {
-      case "admin":
-        return [
-          {
-            name: "Dashboard",
-            href: "/admin",
-            icon: LayoutDashboard,
-          },
-          {
-            name: "Retailers",
-            href: "/admin/retailers",
-            icon: Store,
-          },
-          {
-            name: "Vouchers",
-            href: "/admin/vouchers",
-            icon: CreditCard,
-          },
-          {
-            name: "Commissions",
-            href: "/admin/commissions",
-            icon: Percent,
-          },
-          {
-            name: "Reports",
-            href: "/admin/reports",
-            icon: FileText,
-          },
-          // Profile removed from sidebar nav
-        ];
-      case "retailer":
-        return [
-          {
-            name: "Sell",
-            href: "/retailer",
-            icon: ShoppingCart,
-          },
-          {
-            name: "History",
-            href: "/retailer/history",
-            icon: History,
-          },
-          {
-            name: "Account",
-            href: "/retailer/account",
-            icon: User,
-          },
-        ];
-      case "agent":
+  
         return [
           {
             name: "Dashboard",
@@ -135,20 +87,11 @@ export function Layout({ children, role = "admin" }: LayoutProps) {
             icon: LayoutDashboard,
           },
           {
-            name: "Retailers",
-            href: "/agent/retailers",
-            icon: Store,
-          },
-          {
             name: "Commissions",
             href: "/agent/commissions",
             icon: Percent,
-          },
-          // Profile removed from sidebar nav
+          },          
         ];
-      default:
-        return [];
-    }
   };
 
   const navItems = getNavItems(role);

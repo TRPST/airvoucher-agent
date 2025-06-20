@@ -10,6 +10,7 @@ export type AgentRetailer = {
   location?: string;
   sales_count?: number;
   commission_earned?: number;
+  total_sales?: number;
 };
 
 export type AgentStatement = {
@@ -27,6 +28,57 @@ export type AgentSummary = {
   mtd_sales: number;
   mtd_commission: number;
   ytd_commission: number;
+};
+
+// New types for detailed retailer data
+export type RetailerDetail = {
+  id: string;
+  name: string;
+  email: string | null;
+  contact: string | null;
+  contact_name: string | null;
+  status: "active" | "suspended" | "inactive";
+  balance: number;
+  commission_balance: number;
+  location?: string;
+  created_at: string;
+  agent_profile_id: string;
+  terminals: RetailerTerminal[];
+  profiles: { phone: string | null } | null | { phone: string | null }[];
+};
+
+export type RetailerTerminal = {
+  id: string;
+  name: string;
+  status: "active" | "inactive";
+  last_active: string;
+  retailer_id: string;
+};
+
+export type RetailerSale = {
+  id: string;
+  created_at: string;
+  sale_amount: number;
+  agent_commission: number;
+  voucher_type: string;
+  terminal_name?: string;
+};
+
+export type RetailerSalesSummary = {
+  today_count: number;
+  today_value: number;
+  mtd_count: number;
+  mtd_value: number;
+  total_count: number;
+  total_value: number;
+};
+
+type Sale = {
+  agent_commission: number;
+};
+
+type Statement = {
+  amount: number;
 };
 
 /**
@@ -77,12 +129,12 @@ export async function fetchMyRetailers(agentId: string): Promise<{
           .select(
             `
             id,
+            sale_amount,
             agent_commission,
             terminals!inner(retailer_id)
           `
           )
-          .eq("terminals.retailer_id", retailer.id)
-          .gte("created_at", firstDayOfMonth);
+          .eq("terminals.retailer_id", retailer.id);
 
         if (salesError) {
           console.warn(
@@ -90,6 +142,8 @@ export async function fetchMyRetailers(agentId: string): Promise<{
             salesError
           );
         }
+
+        const totalSales = salesData?.reduce((sum, sale) => sum + (sale.sale_amount || 0), 0) || 0;
 
         result.push({
           ...retailer,
@@ -99,6 +153,7 @@ export async function fetchMyRetailers(agentId: string): Promise<{
               (sum, sale) => sum + (sale.agent_commission || 0),
               0
             ) || 0,
+          total_sales: totalSales,
         });
       } catch (err) {
         console.error(`Error processing retailer ${retailer.id}:`, err);
@@ -106,6 +161,7 @@ export async function fetchMyRetailers(agentId: string): Promise<{
           ...retailer,
           sales_count: 0,
           commission_earned: 0,
+          total_sales: 0,
         });
       }
     }
@@ -193,47 +249,66 @@ export async function fetchAgentStatements(
  * Fetch agent summary statistics
  */
 export async function fetchAgentSummary(agentId: string): Promise<{
-  data: AgentSummary | null;
+  data: {
+    retailer_count: number;
+    mtd_sales: number;
+    mtd_commission: number;
+    ytd_commission: number;
+    total_commission: number;
+    paid_commission: number;
+  } | null;
   error: PostgrestError | Error | null;
 }> {
   try {
-    // Get current month's start date
+    console.log("Fetching performance summary for agent:", agentId);
+
+    // In development, return mock data for testing
+    // if (process.env.NODE_ENV === "development") {
+    //   console.log("Returning mock summary data for development");
+    //   return {
+    //     data: {
+    //       retailer_count: 3,
+    //       mtd_sales: 12,
+    //       mtd_commission: 240,
+    //       ytd_commission: 1250,
+    //       total_commission: 5000,
+    //       paid_commission: 3750,
+    //     },
+    //     error: null,
+    //   };
+    // }
+
+    // Get count of retailers assigned to this agent
+    const { data: retailers, error: retailersError } = await supabase
+      .from("retailers")
+      .select("id", { count: "exact" })
+      .eq("agent_profile_id", agentId);
+
+    if (retailersError) {
+      console.error("Error counting retailers:", retailersError);
+      return { data: null, error: retailersError };
+    }
+
+    // Get current date ranges
     const now = new Date();
     const firstDayOfMonth = new Date(
       now.getFullYear(),
       now.getMonth(),
       1
     ).toISOString();
-    
-    // Get first day of year
-    const firstDayOfYear = new Date(
-      now.getFullYear(),
-      0,
-      1
-    ).toISOString();
+    const firstDayOfYear = new Date(now.getFullYear(), 0, 1).toISOString();
 
-    // Get retailer count
-    const { count: retailerCount, error: retailerError } = await supabase
-      .from("retailers")
-      .select("*", { count: "exact", head: true })
-      .eq("agent_profile_id", agentId);
-
-    if (retailerError) {
-      console.error("Error fetching retailer count:", retailerError);
-      return { data: null, error: retailerError };
-    }
-
-    // Get MTD sales and commission
+    // Get MTD sales and commissions
     const { data: mtdData, error: mtdError } = await supabase
       .from("sales")
       .select(
         `
         id,
-        agent_commission,
-        terminals!inner(retailer_id)
+        sale_amount,
+        agent_commission
       `
       )
-      .eq("terminals.retailers.agent_profile_id", agentId)
+      .eq("agent_profile_id", agentId)
       .gte("created_at", firstDayOfMonth);
 
     if (mtdError) {
@@ -241,17 +316,11 @@ export async function fetchAgentSummary(agentId: string): Promise<{
       return { data: null, error: mtdError };
     }
 
-    // Get YTD commission
+    // Get YTD commissions
     const { data: ytdData, error: ytdError } = await supabase
       .from("sales")
-      .select(
-        `
-        id,
-        agent_commission,
-        terminals!inner(retailer_id)
-      `
-      )
-      .eq("terminals.retailers.agent_profile_id", agentId)
+      .select("agent_commission")
+      .eq("agent_profile_id", agentId)
       .gte("created_at", firstDayOfYear);
 
     if (ytdError) {
@@ -259,22 +328,272 @@ export async function fetchAgentSummary(agentId: string): Promise<{
       return { data: null, error: ytdError };
     }
 
-    const summary: AgentSummary = {
-      retailer_count: retailerCount || 0,
-      mtd_sales: mtdData?.length || 0,
-      mtd_commission: mtdData?.reduce(
-        (sum, sale) => sum + (sale.agent_commission || 0),
-        0
-      ) || 0,
-      ytd_commission: ytdData?.reduce(
-        (sum, sale) => sum + (sale.agent_commission || 0),
-        0
-      ) || 0,
+    // Get total commissions (all time)
+    const { data: totalData, error: totalError } = await supabase
+      .from("sales")
+      .select("agent_commission")
+      .eq("agent_profile_id", agentId);
+
+    if (totalError) {
+      console.error("Error fetching total commission data:", totalError);
+      return { data: null, error: totalError };
+    }
+
+    // Get paid commissions
+    const { data: paidData, error: paidError } = await supabase
+      .from("agent_statements")
+      .select("amount")
+      .eq("agent_profile_id", agentId)
+      .eq("type", "commission_payout");
+
+    if (paidError) {
+      console.error("Error fetching paid commission data:", paidError);
+      return { data: null, error: paidError };
+    }
+
+    // Calculate summary metrics
+    const mtd_sales = mtdData?.length || 0;
+    const mtd_commission =
+      mtdData?.reduce((sum: number, sale: Sale) => sum + (sale.agent_commission || 0), 0) ||
+      0;
+    const ytd_commission =
+      ytdData?.reduce((sum: number, sale: Sale) => sum + (sale.agent_commission || 0), 0) ||
+      0;
+    const total_commission =
+      totalData?.reduce((sum: number, sale: Sale) => sum + (sale.agent_commission || 0), 0) ||
+      0;
+    const paid_commission =
+      paidData?.reduce((sum: number, statement: Statement) => sum + (statement.amount || 0), 0) ||
+      0;
+
+    const summary = {
+      retailer_count: retailers?.length || 0,
+      mtd_sales,
+      mtd_commission,
+      ytd_commission,
+      total_commission,
+      paid_commission,
+    };
+
+    console.log("Agent summary:", summary);
+    return { data: summary, error: null };
+  } catch (err) {
+    console.error("Unexpected error in fetchAgentSummary:", err);
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
+/**
+ * Fetch detailed retailer information by ID
+ */
+export async function fetchRetailerDetail(
+  retailerId: string,
+  agentId: string
+): Promise<{
+  data: RetailerDetail | null;
+  error: PostgrestError | Error | null;
+}> {
+  try {
+    // First verify this retailer belongs to the agent
+    const { data: retailer, error: retailerError } = await supabase
+      .from("retailers")
+      .select(
+        `
+        id,
+        name,
+        contact_name,
+        contact_email,
+        status,
+        balance,
+        commission_balance,
+        location,
+        created_at,
+        agent_profile_id,
+        profiles:profiles!retailers_user_profile_id_fkey (
+          phone
+        )
+      `
+      )
+      .eq("id", retailerId)
+      .eq("agent_profile_id", agentId)
+      .single();
+
+    if (retailerError) {
+      console.error("Error fetching retailer:", retailerError);
+      return { data: null, error: retailerError };
+    }
+
+    if (!retailer) {
+      return { data: null, error: new Error("Retailer not found") };
+    }
+
+    // Get terminals for this retailer
+    const { data: terminals, error: terminalsError } = await supabase
+      .from("terminals")
+      .select(
+        `
+        id,
+        name,
+        status,
+        last_active,
+        retailer_id
+      `
+      )
+      .eq("retailer_id", retailerId);
+
+    if (terminalsError) {
+      console.error("Error fetching terminals:", terminalsError);
+      return { data: null, error: terminalsError };
+    }
+
+    const p = Array.isArray(retailer.profiles) ? retailer.profiles[0] : retailer.profiles;
+
+    const retailerDetail: RetailerDetail = {
+      ...retailer,
+      email: retailer.contact_email,
+      contact: p?.phone || null,
+      terminals: terminals || [],
+    };
+
+    return { data: retailerDetail, error: null };
+  } catch (err) {
+    console.error("Unexpected error in fetchRetailerDetail:", err);
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
+/**
+ * Fetch recent sales for a retailer
+ */
+export async function fetchRetailerSales(
+  retailerId: string,
+  limit: number = 10
+): Promise<{
+  data: RetailerSale[] | null;
+  error: PostgrestError | Error | null;
+}> {
+  try {
+    const { data, error } = await supabase
+      .from("sales")
+      .select(
+        `
+        id,
+        created_at,
+        sale_amount,
+        agent_commission,
+        terminals!inner(name)
+      `
+      )
+      .eq("terminals.retailer_id", retailerId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.error("Error fetching retailer sales:", error);
+      return { data: null, error };
+    }
+
+    if (!data || data.length === 0) {
+      return { data: [], error: null };
+    }
+
+    // Transform the data to match RetailerSale type
+    const sales = data.map((sale) => {
+      const t = Array.isArray(sale.terminals) ? sale.terminals[0] : sale.terminals;
+
+      return {
+        ...sale,
+        voucher_type: 'N/A', // Placeholder
+        terminal_name: t?.name,
+      }
+    });
+
+    return { data: sales, error: null };
+  } catch (err) {
+    console.error("Unexpected error in fetchRetailerSales:", err);
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
+/**
+ * Fetch sales summary for a retailer
+ */
+export async function fetchRetailerSalesSummary(
+  retailerId: string
+): Promise<{
+  data: RetailerSalesSummary | null;
+  error: PostgrestError | Error | null;
+}> {
+  try {
+    // Get current date ranges
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
+    // Get today's sales
+    const { data: todayData, error: todayError } = await supabase
+      .from("sales")
+      .select("sale_amount, terminals!inner(retailer_id)")
+      .eq("terminals.retailer_id", retailerId)
+      .gte("created_at", today);
+
+    if (todayError) {
+      console.error("Error fetching today's sales:", todayError);
+      return { data: null, error: todayError };
+    }
+
+    // Get MTD sales
+    const { data: mtdData, error: mtdError } = await supabase
+      .from("sales")
+      .select("sale_amount, terminals!inner(retailer_id)")
+      .eq("terminals.retailer_id", retailerId)
+      .gte("created_at", firstDayOfMonth);
+
+    if (mtdError) {
+      console.error("Error fetching MTD sales:", mtdError);
+      return { data: null, error: mtdError };
+    }
+
+    // Get total sales (all time)
+    const { data: totalData, error: totalError } = await supabase
+      .from("sales")
+      .select("sale_amount, terminals!inner(retailer_id)")
+      .eq("terminals.retailer_id", retailerId);
+
+    if (totalError) {
+      console.error("Error fetching total sales:", totalError);
+      return { data: null, error: totalError };
+    }
+
+    // Calculate summary metrics
+    const today_count = todayData?.length || 0;
+    const today_value = todayData?.reduce((sum, sale) => sum + (sale.sale_amount || 0), 0) || 0;
+    const mtd_count = mtdData?.length || 0;
+    const mtd_value = mtdData?.reduce((sum, sale) => sum + (sale.sale_amount || 0), 0) || 0;
+    const total_count = totalData?.length || 0;
+    const total_value = totalData?.reduce((sum, sale) => sum + (sale.sale_amount || 0), 0) || 0;
+
+    const summary: RetailerSalesSummary = {
+      today_count,
+      today_value,
+      mtd_count,
+      mtd_value,
+      total_count,
+      total_value,
     };
 
     return { data: summary, error: null };
   } catch (err) {
-    console.error("Unexpected error in fetchAgentSummary:", err);
+    console.error("Unexpected error in fetchRetailerSalesSummary:", err);
     return {
       data: null,
       error: err instanceof Error ? err : new Error(String(err)),

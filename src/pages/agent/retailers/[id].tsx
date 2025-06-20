@@ -11,68 +11,114 @@ import {
   Award,
 } from "lucide-react";
 import { motion } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
 
 import { StatsTile } from "@/components/ui/stats-tile";
 import { ChartPlaceholder } from "@/components/ui/chart-placeholder";
 import { TablePlaceholder } from "@/components/ui/table-placeholder";
-import {
-  retailers,
-  agents,
-  sales,
-  getRetailerById,
-  getSalesByRetailerId,
-  getRetailerSalesSummary,
-  type Sale,
-} from "@/lib/MockData";
 import { cn } from "@/utils/cn";
+import useRequireRole from "@/hooks/useRequireRole";
+import { useAuth } from "@/hooks/useAuth";
+import {
+  fetchRetailerDetail,
+  fetchRetailerSales,
+  fetchRetailerSalesSummary,
+  type RetailerDetail,
+  type RetailerSale,
+  type RetailerSalesSummary,
+} from "@/actions/agentActions";
 
 export default function RetailerDetail() {
   const router = useRouter();
   const { id } = router.query;
+  
+  // Protect this route - only allow agent role
+  const { isLoading: isAuthLoading } = useRequireRole("agent");
+  const { user } = useAuth();
 
-  // Get retailer data
-  const retailer = React.useMemo(() => {
-    // In a real app, we'd use the actual ID from the URL
-    // For demo purposes, either use the ID or fallback to the first retailer
-    const retailerId = typeof id === "string" ? id : "r1";
-    return getRetailerById(retailerId) || retailers[0];
-  }, [id]);
+  // Fetch retailer data
+  const { data: retailerData, isLoading: isRetailerLoading } = useQuery({
+    queryKey: ["retailer-detail", id, user?.id],
+    queryFn: () => fetchRetailerDetail(id as string, user?.id || ""),
+    enabled: !!id && !!user?.id,
+  });
 
-  // Get the agent for this retailer
-  const agent = React.useMemo(() => {
-    return agents.find((a) => a.id === retailer.agentId);
-  }, [retailer]);
+  // Fetch retailer sales
+  const { data: salesData, isLoading: isSalesLoading } = useQuery({
+    queryKey: ["retailer-sales", id],
+    queryFn: () => fetchRetailerSales(id as string, 10),
+    enabled: !!id,
+  });
 
-  // Get sales for this retailer
-  const retailerSales = React.useMemo(() => {
-    return getSalesByRetailerId(retailer.id).slice(0, 10); // Get latest 10 sales
-  }, [retailer.id]);
-
-  // Get sales summary
-  const salesSummary = React.useMemo(() => {
-    return getRetailerSalesSummary(retailer.id);
-  }, [retailer.id]);
+  // Fetch sales summary
+  const { data: summaryData, isLoading: isSummaryLoading } = useQuery({
+    queryKey: ["retailer-sales-summary", id],
+    queryFn: () => fetchRetailerSalesSummary(id as string),
+    enabled: !!id,
+  });
 
   // Calculate MTD commission
   const mtdCommission = React.useMemo(() => {
+    const sales = salesData?.data || [];
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
 
-    return retailerSales
+    return sales
       .filter((sale) => {
-        const saleDate = new Date(sale.date);
+        const saleDate = new Date(sale.created_at);
         return (
           saleDate.getMonth() === currentMonth &&
           saleDate.getFullYear() === currentYear
         );
       })
-      .reduce((sum, sale) => sum + sale.agentCommission, 0);
-  }, [retailerSales]);
+      .reduce((sum, sale) => sum + sale.agent_commission, 0);
+  }, [salesData?.data]);
+
+  // Show loading state while checking authentication or loading data
+  if (isAuthLoading || isRetailerLoading || isSalesLoading || isSummaryLoading) {
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <span className="ml-2">Loading...</span>
+      </div>
+    );
+  }
+
+  // Handle error states
+  if (retailerData?.error || !retailerData?.data) {
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold text-red-600">Error Loading Retailer</h2>
+          <p className="text-muted-foreground">
+            {retailerData?.error?.message || "Retailer not found or access denied"}
+          </p>
+          <button
+            onClick={() => router.push("/agent/")}
+            className="mt-4 rounded-md bg-primary px-4 py-2 text-white hover:bg-primary/90"
+          >
+            Back to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const retailer: RetailerDetail = retailerData.data;
+  const sales: RetailerSale[] = salesData?.data || [];
+  const summary: RetailerSalesSummary = summaryData?.data || {
+    today_count: 0,
+    today_value: 0,
+    mtd_count: 0,
+    mtd_value: 0,
+    total_count: 0,
+    total_value: 0,
+  };
 
   // Format sales data for the table
-  const recentActivityData = retailerSales.map((sale) => {
-    const saleDate = new Date(sale.date);
+  const recentActivityData = sales.map((sale) => {
+    const saleDate = new Date(sale.created_at);
 
     return {
       Date: saleDate.toLocaleDateString("en-ZA", {
@@ -84,9 +130,9 @@ export default function RetailerDetail() {
         hour: "2-digit",
         minute: "2-digit",
       }),
-      Type: sale.voucherType,
-      Value: `R ${sale.voucherValue.toFixed(2)}`,
-      Commission: `R ${sale.agentCommission.toFixed(2)}`,
+      Type: sale.voucher_type,
+      Value: `R ${sale.sale_amount.toFixed(2)}`,
+      Commission: `R ${sale.agent_commission.toFixed(2)}`,
     };
   });
 
@@ -111,11 +157,11 @@ export default function RetailerDetail() {
       {/* Back button */}
       <div>
         <button
-          onClick={() => router.push("/agent/retailers")}
+          onClick={() => router.push("/agent/")}
           className="mb-4 flex items-center text-sm text-muted-foreground hover:text-foreground"
         >
           <ChevronLeft className="mr-1 h-4 w-4" />
-          Back to Retailers
+          Back to Dashboard
         </button>
 
         <h1 className="text-2xl font-bold tracking-tight md:text-3xl">
@@ -173,17 +219,19 @@ export default function RetailerDetail() {
               <Calendar className="mt-0.5 h-4 w-4 text-muted-foreground" />
               <span>
                 Joined{" "}
-                {new Date(retailer.createdAt).toLocaleDateString("en-ZA", {
+                {new Date(retailer.created_at).toLocaleDateString("en-ZA", {
                   day: "numeric",
                   month: "long",
                   year: "numeric",
                 })}
               </span>
             </div>
-            <div className="flex items-start gap-2 text-sm">
-              <Users className="mt-0.5 h-4 w-4 text-muted-foreground" />
-              <span>Managed by {agent?.name || "Unassigned"}</span>
-            </div>
+            {retailer.location && (
+              <div className="flex items-start gap-2 text-sm">
+                <Users className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                <span>{retailer.location}</span>
+              </div>
+            )}
             <div className="flex items-start gap-2 text-sm">
               <Award className="mt-0.5 h-4 w-4 text-muted-foreground" />
               <span>
@@ -205,9 +253,9 @@ export default function RetailerDetail() {
             />
             <StatsTile
               label="Sales (MTD)"
-              value={`R ${salesSummary.todayValue.toFixed(2)}`}
+              value={`R ${summary.mtd_value.toFixed(2)}`}
               intent="success"
-              subtitle={`${salesSummary.todayCount} transactions today`}
+              subtitle={`${summary.mtd_count} transactions this month`}
             />
             <StatsTile
               label="My Commission"
@@ -279,7 +327,7 @@ export default function RetailerDetail() {
               </div>
               <p className="text-sm text-muted-foreground">
                 Last active:{" "}
-                {new Date(terminal.lastActive).toLocaleString("en-ZA")}
+                {new Date(terminal.last_active).toLocaleString("en-ZA")}
               </p>
             </div>
           ))}

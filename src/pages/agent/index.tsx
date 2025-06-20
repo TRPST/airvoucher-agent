@@ -1,17 +1,11 @@
 import * as React from "react";
-import { Users, TrendingUp, Activity, ChevronRight } from "lucide-react";
+import { Users, TrendingUp, Activity, Search, ArrowUpDown, Filter } from "lucide-react";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 
 import { StatsTile } from "@/components/ui/stats-tile";
 import { ChartPlaceholder } from "@/components/ui/chart-placeholder";
-import {
-  Carousel,
-  CarouselContent,
-  CarouselItem,
-  CarouselNext,
-  CarouselPrevious,
-} from "@/components/ui/carousel";
+import { TablePlaceholder } from "@/components/ui/table-placeholder";
 import { cn } from "@/utils/cn";
 import useRequireRole from "@/hooks/useRequireRole";
 import { fetchMyRetailers, fetchAgentSummary, fetchAgentStatements, type AgentStatement } from "@/actions/agentActions";
@@ -21,6 +15,11 @@ export default function AgentDashboard() {
   // Protect this route - only allow agent role
   const { isLoading: isAuthLoading } = useRequireRole("agent");
   const { user } = useAuth();
+
+  const [searchTerm, setSearchTerm] = React.useState("");
+  const [sortBy, setSortBy] = React.useState<string>("name");
+  const [sortOrder, setSortOrder] = React.useState<"asc" | "desc">("asc");
+  const [statusFilter, setStatusFilter] = React.useState<string>("all");
 
   // Fetch agent data
   const { data: retailersData, isLoading: isRetailersLoading } = useQuery({
@@ -56,10 +55,84 @@ export default function AgentDashboard() {
   const summary = summaryData?.data;
   const statements = statementsData?.data || [];
 
-  // Top performing retailers (sort by available balance)
-  const topRetailers = [...retailers]
-    .sort((a, b) => b.balance - a.balance)
-    .slice(0, 5);
+  // Apply filters and sorting
+  const filteredRetailers = retailers
+    .filter((retailer) => {
+      const matchesSearch =
+        retailer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (retailer.location?.toLowerCase() || "").includes(searchTerm.toLowerCase());
+
+      const matchesStatus =
+        statusFilter === "all" || retailer.status === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    })
+    .sort((a, b) => {
+      let comparison = 0;
+
+      if (sortBy === "name") {
+        comparison = a.name.localeCompare(b.name);
+      } else if (sortBy === "total_sales") {
+        comparison = (b.total_sales ?? 0) - (a.total_sales ?? 0);
+      } else if (sortBy === "commission") {
+        comparison = b.commission_balance - a.commission_balance;
+      } else if (sortBy === "status") {
+        comparison = a.status.localeCompare(b.status);
+      }
+
+      return sortOrder === "asc" ? comparison : -comparison;
+    });
+
+  // Format data for table
+  const tableData = filteredRetailers.map((retailer) => ({
+    Retailer: (
+      <div className="flex items-center gap-3">
+        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary">
+          {retailer.name.charAt(0)}
+        </div>
+        <div>
+          <div className="font-medium">{retailer.name}</div>
+          <div className="text-xs text-muted-foreground">
+            {retailer.location}
+          </div>
+        </div>
+      </div>
+    ),
+    "Total Sales": `R ${retailer.total_sales?.toFixed(2) ?? "0.00"}`,
+    Commission: `R ${retailer.commission_balance.toFixed(2)}`,
+    Status: (
+      <div className="flex items-center">
+        <div
+          className={cn(
+            "mr-2 h-2 w-2 rounded-full",
+            retailer.status === "active"
+              ? "bg-green-500"
+              : retailer.status === "inactive"
+              ? "bg-amber-500"
+              : "bg-red-500"
+          )}
+        />
+        <span className="text-xs capitalize">{retailer.status}</span>
+      </div>
+    ),
+    Actions: (
+      <a
+        href={`/agent/retailers/${retailer.id}`}
+        className="rounded-md px-2.5 py-1 text-xs text-primary hover:bg-primary/10"
+      >
+        View Details
+      </a>
+    ),
+  }));
+
+  const handleSort = (column: string) => {
+    if (sortBy === column) {
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setSortBy(column);
+      setSortOrder("asc");
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -82,167 +155,87 @@ export default function AgentDashboard() {
           subtitle="Active accounts"
         />
         <StatsTile
-          label="Commission (MTD)"
-          value={`R ${summary?.mtd_commission.toFixed(2) || "0.00"}`}
+          label="Total Commissions"
+          value={`R ${summary?.total_commission?.toFixed(2) || "0.00"}`}
           icon={TrendingUp}
           intent="success"
-          subtitle={`${summary?.mtd_sales || 0} transactions`}
+          subtitle="Total earned"
         />
         <StatsTile
-          label="YTD Commission"
-          value={`R ${summary?.ytd_commission.toFixed(2) || "0.00"}`}
+          label="Commissions Paid"
+          value={`R ${summary?.paid_commission?.toFixed(2) || "0.00"}`}
           icon={Activity}
           intent="warning"
-          subtitle="Year to date"
+          subtitle="Total paid out"
         />
       </div>
 
-      {/* Commission Chart */}
-      {/* <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-      >
-        <ChartPlaceholder
-          title="Commission Over Time"
-          description="Monthly commission earnings breakdown"
-          height="lg"
-        />
-      </motion.div> */}
-
-      {/* Top Retailers Carousel */}
+      {/* Retailers Table Section */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Top Performing Retailers</h2>
-          <a
-            href="/agent/retailers"
-            className="flex items-center text-sm text-primary hover:underline"
-          >
-            View All
-            <ChevronRight className="ml-1 h-4 w-4" />
-          </a>
+          <h2 className="text-xl font-semibold">My Retailers</h2>
         </div>
 
-        {topRetailers.length > 0 ? (
-          <Carousel>
-            <CarouselContent gap={16}>
-              {topRetailers.map((retailer) => (
-                <CarouselItem key={retailer.id} width="300px">
-                  <motion.div
-                    whileHover={{ y: -5 }}
-                    className="flex h-full flex-col rounded-lg border border-border bg-card p-5 shadow-sm"
-                  >
-                    <div className="mb-2 flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-                        {retailer.name.charAt(0)}
-                      </div>
-                      <div>
-                        <h3 className="font-medium line-clamp-1">
-                          {retailer.name}
-                        </h3>
-                        <p className="text-xs text-muted-foreground">
-                          {retailer.location}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex justify-between border-t border-border pt-3 text-sm">
-                      <div>
-                        <p className="text-muted-foreground">Balance</p>
-                        <p className="font-semibold">
-                          R {retailer.balance.toFixed(2)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">Commission</p>
-                        <p className="font-semibold">
-                          R {retailer.commission_balance.toFixed(2)}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex items-center justify-between">
-                      <div className="flex items-center">
-                        <div
-                          className={cn(
-                            "mr-2 h-2 w-2 rounded-full",
-                            retailer.status === "active"
-                              ? "bg-green-500"
-                              : retailer.status === "inactive"
-                              ? "bg-amber-500"
-                              : "bg-red-500"
-                          )}
-                        />
-                        <span className="text-xs capitalize">
-                          {retailer.status}
-                        </span>
-                      </div>
-                      <a
-                        href={`/agent/retailers/${retailer.id}`}
-                        className="rounded-md px-2.5 py-1 text-xs text-primary hover:bg-primary/10"
-                      >
-                        View Details
-                      </a>
-                    </div>
-                  </motion.div>
-                </CarouselItem>
-              ))}
-            </CarouselContent>
-            <CarouselPrevious />
-            <CarouselNext />
-          </Carousel>
-        ) : (
-          <div className="rounded-lg border border-border bg-card p-10 text-center">
-            <p className="text-muted-foreground">
-              No retailers found. Add some retailers to get started.
-            </p>
+        {/* Filters Section */}
+        <motion.div
+          className="flex flex-col gap-4 sm:flex-row sm:items-center"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+        >
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search retailers..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full rounded-md border border-input bg-background py-2 pl-10 pr-3 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
           </div>
-        )}
-      </div>
 
-      {/* Recent Activity */}
-      {/* <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
-        <h2 className="mb-4 text-xl font-semibold">Recent Activity</h2>
-
-        <div className="space-y-4">
-          {statements.slice(0, 3).map((statement: AgentStatement) => (
-            <div key={statement.id} className="flex items-center gap-4 rounded-lg bg-muted/40 p-3">
-              <div className={cn(
-                "flex h-10 w-10 items-center justify-center rounded-full",
-                statement.type === "commission_credit" ? "bg-green-500/10 text-green-500" :
-                statement.type === "commission_payout" ? "bg-amber-500/10 text-amber-500" :
-                "bg-blue-500/10 text-blue-500"
-              )}>
-                {statement.type === "commission_credit" ? (
-                  <TrendingUp className="h-5 w-5" />
-                ) : statement.type === "commission_payout" ? (
-                  <Activity className="h-5 w-5" />
-                ) : (
-                  <Users className="h-5 w-5" />
-                )}
-              </div>
-              <div className="flex-1">
-                <h3 className="font-medium capitalize">
-                  {statement.type.replace(/_/g, " ")}
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  {statement.retailer_name ? `From ${statement.retailer_name}` : statement.notes}
-                </p>
-              </div>
-              <div className="text-right text-sm text-muted-foreground">
-                {new Date(statement.created_at).toLocaleDateString()}
-              </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option value="all">All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="suspended">Suspended</option>
+              </select>
             </div>
-          ))}
-        </div>
 
-        <div className="mt-4 text-center">
-          <button className="inline-flex items-center text-sm text-primary hover:underline">
-            View All Activity
-            <ChevronRight className="ml-1 h-4 w-4" />
-          </button>
-        </div>
-      </div> */}
+            <button
+              onClick={() => handleSort("name")}
+              className="flex items-center gap-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+              <span>{sortOrder === "asc" ? "A-Z" : "Z-A"}</span>
+            </button>
+
+            <button
+              onClick={() => handleSort("total_sales")}
+              className="flex items-center gap-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+              <span>{sortOrder === "asc" ? "Low-High" : "High-Low"}</span>
+            </button>
+          </div>
+        </motion.div>
+
+        {/* Retailers Table */}
+        <TablePlaceholder
+          columns={["Retailer", "Total Sales", "Commission", "Status", "Actions"]}
+          data={tableData}
+          emptyMessage="No retailers found. Try adjusting your filters or search terms."
+          className="animate-fade-in"
+          size="lg"
+        />
+      </div>
     </div>
   );
 }
