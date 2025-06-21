@@ -35,7 +35,7 @@ export type RetailerDetail = {
   id: string;
   name: string;
   email: string | null;
-  contact: string | null;
+  contact_number: string | null;
   contact_name: string | null;
   status: "active" | "suspended" | "inactive";
   balance: number;
@@ -44,7 +44,6 @@ export type RetailerDetail = {
   created_at: string;
   agent_profile_id: string;
   terminals: RetailerTerminal[];
-  profiles: { phone: string | null } | null | { phone: string | null }[];
 };
 
 export type RetailerTerminal = {
@@ -71,6 +70,7 @@ export type RetailerSalesSummary = {
   mtd_value: number;
   total_count: number;
   total_value: number;
+  total_commission: number;
 };
 
 type Sale = {
@@ -406,15 +406,13 @@ export async function fetchRetailerDetail(
         name,
         contact_name,
         contact_email,
+        contact_number,
         status,
         balance,
         commission_balance,
         location,
         created_at,
-        agent_profile_id,
-        profiles:profiles!retailers_user_profile_id_fkey (
-          phone
-        )
+        agent_profile_id
       `
       )
       .eq("id", retailerId)
@@ -449,12 +447,9 @@ export async function fetchRetailerDetail(
       return { data: null, error: terminalsError };
     }
 
-    const p = Array.isArray(retailer.profiles) ? retailer.profiles[0] : retailer.profiles;
-
     const retailerDetail: RetailerDetail = {
       ...retailer,
       email: retailer.contact_email,
-      contact: p?.phone || null,
       terminals: terminals || [],
     };
 
@@ -487,7 +482,8 @@ export async function fetchRetailerSales(
         created_at,
         sale_amount,
         agent_commission,
-        terminals!inner(name)
+        terminals!inner(name),
+        voucher_inventory!inner(voucher_types!inner(name))
       `
       )
       .eq("terminals.retailer_id", retailerId)
@@ -504,14 +500,18 @@ export async function fetchRetailerSales(
     }
 
     // Transform the data to match RetailerSale type
-    const sales = data.map((sale) => {
-      const t = Array.isArray(sale.terminals) ? sale.terminals[0] : sale.terminals;
+    const sales = data.map((sale: any) => {
+      const t = Array.isArray(sale.terminals)
+        ? sale.terminals[0]
+        : sale.terminals;
+      const voucherInventory = sale.voucher_inventory;
+      const voucherType = voucherInventory?.voucher_types;
 
       return {
         ...sale,
-        voucher_type: 'N/A', // Placeholder
+        voucher_type: voucherType?.name || "N/A",
         terminal_name: t?.name,
-      }
+      };
     });
 
     return { data: sales, error: null };
@@ -566,7 +566,7 @@ export async function fetchRetailerSalesSummary(
     // Get total sales (all time)
     const { data: totalData, error: totalError } = await supabase
       .from("sales")
-      .select("sale_amount, terminals!inner(retailer_id)")
+      .select("sale_amount, agent_commission, terminals!inner(retailer_id)")
       .eq("terminals.retailer_id", retailerId);
 
     if (totalError) {
@@ -578,9 +578,14 @@ export async function fetchRetailerSalesSummary(
     const today_count = todayData?.length || 0;
     const today_value = todayData?.reduce((sum, sale) => sum + (sale.sale_amount || 0), 0) || 0;
     const mtd_count = mtdData?.length || 0;
-    const mtd_value = mtdData?.reduce((sum, sale) => sum + (sale.sale_amount || 0), 0) || 0;
+    const mtd_value =
+      mtdData?.reduce((sum, sale) => sum + (sale.sale_amount || 0), 0) || 0;
     const total_count = totalData?.length || 0;
-    const total_value = totalData?.reduce((sum, sale) => sum + (sale.sale_amount || 0), 0) || 0;
+    const total_value =
+      totalData?.reduce((sum, sale) => sum + (sale.sale_amount || 0), 0) || 0;
+    const total_commission =
+      totalData?.reduce((sum, sale) => sum + (sale.agent_commission || 0), 0) ||
+      0;
 
     const summary: RetailerSalesSummary = {
       today_count,
@@ -589,6 +594,7 @@ export async function fetchRetailerSalesSummary(
       mtd_value,
       total_count,
       total_value,
+      total_commission,
     };
 
     return { data: summary, error: null };

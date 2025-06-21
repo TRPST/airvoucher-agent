@@ -57,24 +57,6 @@ export default function RetailerDetail() {
     enabled: !!id,
   });
 
-  // Calculate MTD commission
-  const mtdCommission = React.useMemo(() => {
-    const sales = salesData?.data || [];
-    const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
-
-    return sales
-      .filter((sale) => {
-        const saleDate = new Date(sale.created_at);
-        return (
-          saleDate.getMonth() === currentMonth &&
-          saleDate.getFullYear() === currentYear
-        );
-      })
-      .reduce((sum, sale) => sum + sale.agent_commission, 0);
-  }, [salesData?.data]);
-
   // Show loading state while checking authentication or loading data
   if (isAuthLoading || isRetailerLoading || isSalesLoading || isSummaryLoading) {
     return (
@@ -114,23 +96,47 @@ export default function RetailerDetail() {
     mtd_value: 0,
     total_count: 0,
     total_value: 0,
+    total_commission: 0,
   };
 
   // Format sales data for the table
   const recentActivityData = sales.map((sale) => {
     const saleDate = new Date(sale.created_at);
 
+    const getVoucherTypeColor = (voucherType: string) => {
+      switch (voucherType) {
+        case "Mobile":
+          return "bg-primary";
+        case "OTT":
+          return "bg-purple-500";
+        case "Hollywoodbets":
+          return "bg-green-500";
+        case "Ringa":
+          return "bg-amber-500";
+        default:
+          return "bg-pink-500";
+      }
+    };
+
     return {
-      Date: saleDate.toLocaleDateString("en-ZA", {
+      "Date/Time": saleDate.toLocaleString("en-ZA", {
         day: "numeric",
         month: "short",
         year: "numeric",
-      }),
-      Time: saleDate.toLocaleTimeString("en-ZA", {
         hour: "2-digit",
         minute: "2-digit",
       }),
-      Type: sale.voucher_type,
+      Type: (
+        <div className="flex items-center gap-2">
+          <div
+            className={cn(
+              "h-2 w-2 rounded-full",
+              getVoucherTypeColor(sale.voucher_type)
+            )}
+          />
+          <span>{sale.voucher_type || "Unknown"}</span>
+        </div>
+      ),
       Value: `R ${sale.sale_amount.toFixed(2)}`,
       Commission: `R ${sale.agent_commission.toFixed(2)}`,
     };
@@ -177,12 +183,12 @@ export default function RetailerDetail() {
         variants={containerVariants}
         initial="hidden"
         animate="show"
-        className="grid grid-cols-1 gap-6 lg:grid-cols-3"
+        className="space-y-6"
       >
         {/* Profile Card */}
         <motion.div
           variants={itemVariants}
-          className="rounded-lg border border-border bg-card p-6 shadow-sm lg:col-span-1"
+          className="rounded-lg border border-border bg-card p-6 shadow-sm"
         >
           <div className="mb-4 flex items-center gap-4">
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary text-xl font-semibold">
@@ -206,76 +212,62 @@ export default function RetailerDetail() {
             </div>
           </div>
 
-          <div className="space-y-3">
-            <div className="flex items-start gap-2 text-sm">
-              <Mail className="mt-0.5 h-4 w-4 text-muted-foreground" />
-              <span>{retailer.email}</span>
-            </div>
-            <div className="flex items-start gap-2 text-sm">
-              <Phone className="mt-0.5 h-4 w-4 text-muted-foreground" />
-              <span>{retailer.contact}</span>
-            </div>
-            <div className="flex items-start gap-2 text-sm">
-              <Calendar className="mt-0.5 h-4 w-4 text-muted-foreground" />
-              <span>
-                Joined{" "}
-                {new Date(retailer.created_at).toLocaleDateString("en-ZA", {
-                  day: "numeric",
-                  month: "long",
-                  year: "numeric",
-                })}
-              </span>
-            </div>
-            {retailer.location && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
+            <div className="space-y-3">
               <div className="flex items-start gap-2 text-sm">
-                <Users className="mt-0.5 h-4 w-4 text-muted-foreground" />
-                <span>{retailer.location}</span>
+                <Mail className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                <span>{retailer.email}</span>
               </div>
-            )}
-            <div className="flex items-start gap-2 text-sm">
-              <Award className="mt-0.5 h-4 w-4 text-muted-foreground" />
-              <span>
-                {retailer.terminals.length} Active Terminal
-                {retailer.terminals.length !== 1 ? "s" : ""}
-              </span>
+              <div className="flex items-start gap-2 text-sm">
+                <Phone className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                <span>{retailer.contact_number}</span>
+              </div>
+              <div className="flex items-start gap-2 text-sm">
+                <Calendar className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                <span>
+                  Joined{" "}
+                  {new Date(retailer.created_at).toLocaleDateString("en-ZA", {
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric",
+                  })}
+                </span>
+              </div>
+            </div>
+            <div className="space-y-3">
+              {retailer.location && (
+                <div className="flex items-start gap-2 text-sm">
+                  <Users className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                  <span>{retailer.location}</span>
+                </div>
+              )}
+              <div className="flex items-start gap-2 text-sm">
+                <Award className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                <span>
+                  {retailer.terminals.length} Active Terminal
+                  {retailer.terminals.length !== 1 ? "s" : ""}
+                </span>
+              </div>
             </div>
           </div>
         </motion.div>
 
         {/* Stats */}
-        <motion.div variants={itemVariants} className="space-y-4 lg:col-span-2">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <motion.div variants={itemVariants} className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <StatsTile
-              label="Available Balance"
-              value={`R ${retailer.balance.toFixed(2)}`}
-              intent="info"
-              subtitle="Current retailer balance"
-            />
-            <StatsTile
-              label="Sales (MTD)"
-              value={`R ${summary.mtd_value.toFixed(2)}`}
+              label="Total Sales"
+              value={`R ${summary.total_value.toFixed(2)}`}
               intent="success"
-              subtitle={`${summary.mtd_count} transactions this month`}
+              subtitle={`${summary.total_count} transactions in total`}
             />
             <StatsTile
               label="My Commission"
-              value={`R ${mtdCommission.toFixed(2)}`}
+              value={`R ${summary.total_commission.toFixed(2)}`}
               intent="warning"
-              subtitle="Agent earnings from this retailer"
+              subtitle="Total earnings from this retailer"
             />
           </div>
-
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.3 }}
-          >
-            <ChartPlaceholder
-              title="Sales Trend"
-              description="Monthly sales performance for this retailer"
-              height="sm"
-            />
-          </motion.div>
         </motion.div>
       </motion.div>
 
@@ -288,7 +280,7 @@ export default function RetailerDetail() {
         <h2 className="mb-4 text-xl font-semibold">Recent Activity</h2>
 
         <TablePlaceholder
-          columns={["Date", "Time", "Type", "Value", "Commission"]}
+          columns={["Date/Time", "Type", "Value", "Commission"]}
           data={recentActivityData}
           emptyMessage="No recent activity found for this retailer."
           size="md"
