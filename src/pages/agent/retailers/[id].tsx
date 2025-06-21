@@ -9,6 +9,7 @@ import {
   Calendar,
   ChevronLeft,
   Award,
+  ChevronRight,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
@@ -31,6 +32,8 @@ import {
 export default function RetailerDetail() {
   const router = useRouter();
   const { id } = router.query;
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const itemsPerPage = 10;
   
   // Protect this route - only allow agent role
   const { isLoading: isAuthLoading } = useRequireRole("agent");
@@ -141,6 +144,13 @@ export default function RetailerDetail() {
       Commission: `R ${sale.agent_commission.toFixed(2)}`,
     };
   });
+
+  // Pagination logic
+  const totalPages = Math.ceil(recentActivityData.length / itemsPerPage);
+  const paginatedActivity = recentActivityData.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
 
   // Animation variants for staggered animations
   const containerVariants = {
@@ -279,12 +289,50 @@ export default function RetailerDetail() {
       >
         <h2 className="mb-4 text-xl font-semibold">Recent Activity</h2>
 
-        <TablePlaceholder
-          columns={["Date/Time", "Type", "Value", "Commission"]}
-          data={recentActivityData}
-          emptyMessage="No recent activity found for this retailer."
-          size="md"
-        />
+        <div className="rounded-lg border border-border shadow-sm">
+          <TablePlaceholder
+            columns={["Date/Time", "Type", "Value", "Commission"]}
+            data={paginatedActivity}
+            emptyMessage="No recent activity found for this retailer."
+            size="md"
+          />
+
+          {recentActivityData.length > 0 && (
+            <div className="flex items-center justify-between border-t border-border px-4 py-3">
+              <span className="text-sm text-muted-foreground">
+                Showing{" "}
+                <strong>
+                  {(currentPage - 1) * itemsPerPage + 1}-
+                  {Math.min(
+                    currentPage * itemsPerPage,
+                    recentActivityData.length
+                  )}
+                </strong>{" "}
+                of <strong>{recentActivityData.length}</strong> results
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="inline-flex items-center justify-center rounded-md border border-input bg-background px-3 py-1 text-sm font-medium hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+                >
+                  <ChevronLeft className="mr-1 h-4 w-4" />
+                  Previous
+                </button>
+                <button
+                  onClick={() =>
+                    setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+                  }
+                  disabled={currentPage === totalPages}
+                  className="inline-flex items-center justify-center rounded-md border border-input bg-background px-3 py-1 text-sm font-medium hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+                >
+                  Next
+                  <ChevronRight className="ml-1 h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </motion.div>
 
       {/* Terminals Section */}
