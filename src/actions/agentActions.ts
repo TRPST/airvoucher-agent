@@ -251,9 +251,6 @@ export async function fetchAgentStatements(
 export async function fetchAgentSummary(agentId: string): Promise<{
   data: {
     retailer_count: number;
-    mtd_sales: number;
-    mtd_commission: number;
-    ytd_commission: number;
     total_commission: number;
     paid_commission: number;
   } | null;
@@ -262,118 +259,28 @@ export async function fetchAgentSummary(agentId: string): Promise<{
   try {
     console.log("Fetching performance summary for agent:", agentId);
 
-    // In development, return mock data for testing
-    // if (process.env.NODE_ENV === "development") {
-    //   console.log("Returning mock summary data for development");
-    //   return {
-    //     data: {
-    //       retailer_count: 3,
-    //       mtd_sales: 12,
-    //       mtd_commission: 240,
-    //       ytd_commission: 1250,
-    //       total_commission: 5000,
-    //       paid_commission: 3750,
-    //     },
-    //     error: null,
-    //   };
-    // }
+    const { data, error } = await supabase.rpc("get_agent_summary", {
+      p_agent_id: agentId,
+    });
 
-    // Get count of retailers assigned to this agent
-    const { data: retailers, error: retailersError } = await supabase
-      .from("retailers")
-      .select("id", { count: "exact" })
-      .eq("agent_profile_id", agentId);
-
-    if (retailersError) {
-      console.error("Error counting retailers:", retailersError);
-      return { data: null, error: retailersError };
+    if (error) {
+      console.error("Error fetching agent summary:", error);
+      return { data: null, error };
     }
 
-    // Get current date ranges
-    const now = new Date();
-    const firstDayOfMonth = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      1
-    ).toISOString();
-    const firstDayOfYear = new Date(now.getFullYear(), 0, 1).toISOString();
+    // The RPC returns an array, so we take the first element.
+    const summary = data && data.length > 0 ? data[0] : null;
 
-    // Get MTD sales and commissions
-    const { data: mtdData, error: mtdError } = await supabase
-      .from("sales")
-      .select(
-        `
-        id,
-        sale_amount,
-        agent_commission
-      `
-      )
-      .eq("agent_profile_id", agentId)
-      .gte("created_at", firstDayOfMonth);
-
-    if (mtdError) {
-      console.error("Error fetching MTD data:", mtdError);
-      return { data: null, error: mtdError };
+    if (!summary) {
+      return {
+        data: {
+          retailer_count: 0,
+          total_commission: 0,
+          paid_commission: 0,
+        },
+        error: null,
+      };
     }
-
-    // Get YTD commissions
-    const { data: ytdData, error: ytdError } = await supabase
-      .from("sales")
-      .select("agent_commission")
-      .eq("agent_profile_id", agentId)
-      .gte("created_at", firstDayOfYear);
-
-    if (ytdError) {
-      console.error("Error fetching YTD data:", ytdError);
-      return { data: null, error: ytdError };
-    }
-
-    // Get total commissions (all time)
-    const { data: totalData, error: totalError } = await supabase
-      .from("sales")
-      .select("agent_commission")
-      .eq("agent_profile_id", agentId);
-
-    if (totalError) {
-      console.error("Error fetching total commission data:", totalError);
-      return { data: null, error: totalError };
-    }
-
-    // Get paid commissions
-    const { data: paidData, error: paidError } = await supabase
-      .from("agent_statements")
-      .select("amount")
-      .eq("agent_profile_id", agentId)
-      .eq("type", "commission_payout");
-
-    if (paidError) {
-      console.error("Error fetching paid commission data:", paidError);
-      return { data: null, error: paidError };
-    }
-
-    // Calculate summary metrics
-    const mtd_sales = mtdData?.length || 0;
-    const mtd_commission =
-      mtdData?.reduce((sum: number, sale: Sale) => sum + (sale.agent_commission || 0), 0) ||
-      0;
-    const ytd_commission =
-      ytdData?.reduce((sum: number, sale: Sale) => sum + (sale.agent_commission || 0), 0) ||
-      0;
-    const total_commission =
-      totalData?.reduce((sum: number, sale: Sale) => sum + (sale.agent_commission || 0), 0) ||
-      0;
-    const paid_commission =
-      paidData?.reduce((sum: number, statement: Statement) => sum + (statement.amount || 0), 0) ||
-      0;
-
-    const summary = {
-      retailer_count: retailers?.length || 0,
-      mtd_sales,
-      mtd_commission,
-      ytd_commission,
-      total_commission,
-      paid_commission,
-    };
 
     console.log("Agent summary:", summary);
     return { data: summary, error: null };
@@ -600,6 +507,46 @@ export async function fetchRetailerSalesSummary(
     return { data: summary, error: null };
   } catch (err) {
     console.error("Unexpected error in fetchRetailerSalesSummary:", err);
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
+export type CommissionStatement = {
+  stats: {
+    total_commission: number;
+    paid_commission: number;
+    pending_commission: number;
+    transaction_count: number;
+  };
+  pending_transactions: any[];
+  paid_transactions: any[];
+};
+
+export async function fetchCommissionStatement(
+  agentId: string,
+  { startDate, endDate }: { startDate: string; endDate: string }
+): Promise<{
+  data: CommissionStatement | null;
+  error: PostgrestError | Error | null;
+}> {
+  try {
+    const { data, error } = await supabase.rpc("get_agent_commission_statement", {
+      p_agent_id: agentId,
+      p_start_date: startDate,
+      p_end_date: endDate,
+    });
+
+    if (error) {
+      console.error("Error fetching commission statement:", error);
+      return { data: null, error };
+    }
+
+    return { data, error: null };
+  } catch (err) {
+    console.error("Unexpected error in fetchCommissionStatement:", err);
     return {
       data: null,
       error: err instanceof Error ? err : new Error(String(err)),

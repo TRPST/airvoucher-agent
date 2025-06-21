@@ -19,7 +19,7 @@ import { ChartPlaceholder } from "@/components/ui/chart-placeholder";
 import { TablePlaceholder } from "@/components/ui/table-placeholder";
 import { cn } from "@/utils/cn";
 import useRequireRole from "@/hooks/useRequireRole";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/components/Layout";
 import {
   fetchRetailerDetail,
   fetchRetailerSales,

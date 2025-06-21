@@ -9,7 +9,7 @@ import { TablePlaceholder } from "@/components/ui/table-placeholder";
 import { cn } from "@/utils/cn";
 import useRequireRole from "@/hooks/useRequireRole";
 import { fetchMyRetailers, fetchAgentSummary, fetchAgentStatements, type AgentStatement } from "@/actions/agentActions";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/components/Layout";
 
 export default function AgentDashboard() {
   // Protect this route - only allow agent role
@@ -75,7 +75,7 @@ export default function AgentDashboard() {
       } else if (sortBy === "total_sales") {
         comparison = (b.total_sales ?? 0) - (a.total_sales ?? 0);
       } else if (sortBy === "commission") {
-        comparison = b.commission_balance - a.commission_balance;
+        comparison = (b.commission_earned ?? 0) - (a.commission_earned ?? 0);
       } else if (sortBy === "status") {
         comparison = a.status.localeCompare(b.status);
       }
@@ -99,7 +99,7 @@ export default function AgentDashboard() {
       </div>
     ),
     "Total Sales": `R ${retailer.total_sales?.toFixed(2) ?? "0.00"}`,
-    Commission: `R ${retailer.commission_balance.toFixed(2)}`,
+    Commission: `R ${retailer.commission_earned?.toFixed(2) ?? "0.00"}`,
     Status: (
       <div className="flex items-center">
         <div

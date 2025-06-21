@@ -5,134 +5,136 @@ import {
   TrendingUp,
   DollarSign,
   Filter,
+  ArrowRightLeft,
+  HelpCircle,
 } from "lucide-react";
 import { motion } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
 
 import { StatsTile } from "@/components/ui/stats-tile";
 import { TablePlaceholder } from "@/components/ui/table-placeholder";
-import { agents, sales, type Sale } from "@/lib/MockData";
 import { cn } from "@/utils/cn";
+import { useAuth } from "@/components/Layout";
+import useRequireRole from "@/hooks/useRequireRole";
+import { fetchCommissionStatement } from "@/actions/agentActions";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+interface CommissionStats {
+  total_commission: number;
+  paid_commission: number;
+  pending_commission: number;
+  transaction_count: number;
+}
+
+const Tooltip = ({ text }: { text: string }) => {
+  const [isVisible, setIsVisible] = React.useState(false);
+
+  return (
+    <div className="relative">
+      <button
+        className="text-muted-foreground hover:text-foreground"
+        onMouseEnter={() => setIsVisible(true)}
+        onMouseLeave={() => setIsVisible(false)}
+        onFocus={() => setIsVisible(true)}
+        onBlur={() => setIsVisible(false)}
+      >
+        <HelpCircle className="h-4 w-4" />
+      </button>
+
+      {isVisible && (
+        <motion.div
+          initial={{ opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="absolute -right-2 bottom-full z-50 mb-2 w-60 rounded-lg bg-popover p-3 text-sm text-popover-foreground shadow-md"
+        >
+          {text}
+          <div className="absolute -bottom-1 right-2 h-2 w-2 rotate-45 bg-popover" />
+        </motion.div>
+      )}
+    </div>
+  );
+};
 
 export default function AgentCommissions() {
-  const [filter, setFilter] = React.useState<"pending" | "paid">("pending");
+  const { user, profile } = useAuth();
+  const { isLoading: isAuthLoading } = useRequireRole("agent");
+
   const [dateRange, setDateRange] = React.useState<
     "all" | "mtd" | "past30" | "past90"
   >("mtd");
 
-  // Get the first active agent for demo purposes
-  const agent = agents.find((a) => a.status === "active") || agents[0];
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = React.useState(false);
 
-  // Filter sales based on retailer association with this agent
-  const agentSales = React.useMemo(() => {
-    // In a real app, would use an API endpoint to get this data
-    return sales.filter((sale) => {
-      const retailer = sale.retailerId;
-      // Return only sales for this agent's retailers
-      return (
-        retailer.startsWith("r") &&
-        (retailer === "r1" || retailer === "r3" || retailer === "r6")
-      );
-    });
-  }, []);
-
-  // Apply date range filter
-  const filteredSales = React.useMemo(() => {
+  const { startDate, endDate } = React.useMemo(() => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    let start = new Date();
+    let end = new Date(today);
+    end.setHours(23, 59, 59, 999); // End of today
 
-    return agentSales.filter((sale) => {
-      const saleDate = new Date(sale.date);
-
-      if (dateRange === "mtd") {
-        // Month to date
-        return (
-          saleDate.getMonth() === now.getMonth() &&
-          saleDate.getFullYear() === now.getFullYear()
-        );
-      } else if (dateRange === "past30") {
-        // Past 30 days
-        const thirtyDaysAgo = new Date(today);
-        thirtyDaysAgo.setDate(today.getDate() - 30);
-        return saleDate >= thirtyDaysAgo;
-      } else if (dateRange === "past90") {
-        // Past 90 days
-        const ninetyDaysAgo = new Date(today);
-        ninetyDaysAgo.setDate(today.getDate() - 90);
-        return saleDate >= ninetyDaysAgo;
-      }
-
-      // All time
-      return true;
-    });
-  }, [agentSales, dateRange]);
-
-  // Calculate summary statistics
-  const summaryStats = React.useMemo(() => {
-    const total = filteredSales.reduce(
-      (sum, sale) => sum + sale.agentCommission,
-      0
-    );
-    const pendingAmount = total * 0.4; // For demo, 40% still pending
-    const paidAmount = total - pendingAmount;
-    const transactionCount = filteredSales.length;
-
+    switch (dateRange) {
+      case "mtd":
+        start = new Date(now.getFullYear(), now.getMonth(), 1);
+        break;
+      case "past30":
+        start = new Date(today);
+        start.setDate(today.getDate() - 30);
+        break;
+      case "past90":
+        start = new Date(today);
+        start.setDate(today.getDate() - 90);
+        break;
+      case "all":
+        start = new Date(2000, 0, 1); // A long time ago
+        break;
+    }
     return {
-      total,
-      pending: pendingAmount,
-      paid: paidAmount,
-      count: transactionCount,
+      startDate: start.toISOString().split("T")[0],
+      endDate: end.toISOString().split("T")[0],
     };
-  }, [filteredSales]);
+  }, [dateRange]);
 
-  // Prepare table data
-  const tableData = React.useMemo(() => {
-    // Separate into paid/pending for demo purposes
-    const pendingSales = filteredSales.slice(
-      0,
-      Math.floor(filteredSales.length * 0.4)
+  const { data: statementData, isLoading: isStatementLoading } = useQuery({
+    queryKey: ["commission-statement", user?.id, startDate, endDate],
+    queryFn: () =>
+      fetchCommissionStatement(user?.id || "", { startDate, endDate }),
+    enabled: !!user?.id,
+  });
+
+  if (isAuthLoading || isStatementLoading) {
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <span className="ml-2">Loading...</span>
+      </div>
     );
-    const paidSales = filteredSales.slice(
-      Math.floor(filteredSales.length * 0.4)
-    );
+  }
 
-    // Show either pending or paid based on filter
-    const displaySales = filter === "pending" ? pendingSales : paidSales;
+  const summaryStats: CommissionStats =
+    (statementData?.data?.stats as unknown as CommissionStats) || {
+      total_commission: 0,
+      paid_commission: 0,
+      pending_commission: 0,
+      transaction_count: 0,
+    };
 
-    return displaySales.map((sale) => {
-      // Format date
-      const saleDate = new Date(sale.date);
-      const formattedDate = saleDate.toLocaleDateString("en-ZA", {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      });
-
-      return {
-        Date: formattedDate,
-        Retailer:
-          sale.retailerId === "r1"
-            ? "Soweto Corner Shop"
-            : sale.retailerId === "r3"
-            ? "Sandton Convenience"
-            : sale.retailerId === "r6"
-            ? "Pretoria Central Kiosk"
-            : "Unknown Retailer",
-        Type: sale.voucherType,
-        Value: `R ${sale.voucherValue.toFixed(2)}`,
-        Commission: `R ${sale.agentCommission.toFixed(2)}`,
-        Status:
-          filter === "pending" ? (
-            <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-500">
-              Pending
-            </span>
-          ) : (
-            <span className="inline-flex items-center rounded-full bg-green-500/10 px-2.5 py-0.5 text-xs font-medium text-green-500">
-              Paid
-            </span>
-          ),
-      };
-    });
-  }, [filteredSales, filter]);
+  const bankDetails = {
+    accountName: profile?.full_name || user?.email,
+    accountNumber: "1234567890",
+    bankName: "FNB",
+    branchCode: "250655",
+    accountType: "Business",
+    reference: "AV-AGENT-" + user?.id.split("-")[0].toUpperCase(),
+  };
 
   return (
     <div className="space-y-6">
@@ -149,21 +151,21 @@ export default function AgentCommissions() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatsTile
           label="Total Commission"
-          value={`R ${summaryStats.total.toFixed(2)}`}
+          value={`R ${summaryStats.total_commission.toFixed(2)}`}
           icon={TrendingUp}
           intent="info"
-          subtitle={`${summaryStats.count} transactions`}
+          subtitle={`${summaryStats.transaction_count} transactions this period`}
         />
         <StatsTile
-          label="Paid Commission"
-          value={`R ${summaryStats.paid.toFixed(2)}`}
+          label="Commission Paid"
+          value={`R ${summaryStats.paid_commission.toFixed(2)}`}
           icon={DollarSign}
           intent="success"
-          subtitle="Already paid out"
+          subtitle="Total paid out"
         />
         <StatsTile
-          label="Pending Commission"
-          value={`R ${summaryStats.pending.toFixed(2)}`}
+          label="Pending Payout"
+          value={`R ${summaryStats.pending_commission.toFixed(2)}`}
           icon={Calendar}
           intent="warning"
           subtitle="Will be paid on next cycle"
@@ -172,40 +174,19 @@ export default function AgentCommissions() {
 
       {/* Filter controls */}
       <motion.div
-        className="flex flex-col gap-4 sm:flex-row sm:items-center justify-between"
+        className="flex flex-col gap-4 sm:flex-row sm:items-center justify-end"
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
       >
         <div className="flex items-center gap-3">
-          <div className="flex items-center space-x-2">
-            <div className="text-sm font-medium">Pending</div>
-            <button
-              onClick={() =>
-                setFilter(filter === "pending" ? "paid" : "pending")
-              }
-              className={cn(
-                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                filter === "paid" ? "bg-primary" : "bg-muted"
-              )}
-            >
-              <span
-                className={cn(
-                  "pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform",
-                  filter === "paid" ? "translate-x-5" : "translate-x-0.5"
-                )}
-              />
-            </button>
-            <div className="text-sm font-medium">Paid</div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <Filter className="h-4 w-4 text-muted-foreground" />
             <select
               value={dateRange}
-              onChange={(e) => setDateRange(e.target.value as any)}
+              onChange={(e) =>
+                setDateRange(e.target.value as any)
+              }
               className="rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <option value="mtd">This Month</option>
@@ -222,20 +203,11 @@ export default function AgentCommissions() {
         </div>
       </motion.div>
 
-      {/* Commission Table */}
-      <TablePlaceholder
-        columns={["Date", "Retailer", "Type", "Value", "Commission", "Status"]}
-        data={tableData}
-        emptyMessage={`No ${filter} commissions found.`}
-        size="lg"
-        className="animate-fade-in"
-      />
-
       <div className="mt-8 rounded-lg border border-border bg-card p-6 shadow-sm">
         <h2 className="text-xl font-semibold mb-4">
           Commission Payout Schedule
         </h2>
-        <div className="space-y-4">
+        <div className="space-y-6">
           <div className="flex flex-col gap-1.5">
             <div className="text-sm font-medium">Next Payout Date</div>
             <div className="text-2xl font-semibold text-primary">
@@ -246,25 +218,130 @@ export default function AgentCommissions() {
             </div>
           </div>
 
-          <div className="border-t border-border pt-4 flex flex-col gap-1.5">
-            <div className="text-sm font-medium">Payment Method</div>
-            <div className="text-base">Direct Bank Transfer</div>
-            <div className="text-sm text-muted-foreground">
-              Funds will be transferred to your registered bank account.
+          <div className="border-t border-border pt-4">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-medium">Payment Information</h3>
+              <div className="flex items-center">
+                <button
+                  onClick={() => setIsUpdateModalOpen(true)}
+                  className="rounded-md px-2.5 py-1.5 text-sm font-medium text-primary hover:bg-primary/10"
+                >
+                  Update
+                </button>
+              </div>
             </div>
-          </div>
-
-          <div className="border-t border-border pt-4 flex flex-col gap-1.5">
-            <div className="text-sm font-medium">Payment Information</div>
-            <div className="text-base">First National Bank ●●●● 4567</div>
-            <div className="text-sm text-muted-foreground">
-              <button className="text-primary hover:underline">
-                Update payment details
-              </button>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm text-muted-foreground">Account Name</p>
+                <p className="font-medium">{bankDetails.accountName}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Account Number</p>
+                <p className="font-medium">{bankDetails.accountNumber}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Bank</p>
+                <p className="font-medium">{bankDetails.bankName}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Branch Code</p>
+                <p className="font-medium">{bankDetails.branchCode}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Account Type</p>
+                <p className="font-medium">{bankDetails.accountType}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Reference</p>
+                <p className="font-medium">{bankDetails.reference}</p>
+              </div>
             </div>
           </div>
         </div>
       </div>
+
+      <Dialog open={isUpdateModalOpen} onOpenChange={setIsUpdateModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Update Payment Details</DialogTitle>
+            <DialogDescription>
+              Ensure your banking information is correct to receive payouts.
+              Changes may require verification.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="bankName" className="text-right">
+                Bank Name
+              </Label>
+              <Input
+                id="bankName"
+                defaultValue={bankDetails.bankName}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="accountName" className="text-right">
+                Account Name
+              </Label>
+              <Input
+                id="accountName"
+                defaultValue={bankDetails.accountName || ""}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="accountNumber" className="text-right">
+                Account Number
+              </Label>
+              <Input
+                id="accountNumber"
+                defaultValue={bankDetails.accountNumber}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="branchCode" className="text-right">
+                Branch Code
+              </Label>
+              <Input
+                id="branchCode"
+                defaultValue={bankDetails.branchCode}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="accountType" className="text-right">
+                Account Type
+              </Label>
+              <Input
+                id="accountType"
+                defaultValue={bankDetails.accountType}
+                className="col-span-3"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <button
+              onClick={() => setIsUpdateModalOpen(false)}
+              type="button"
+              className="rounded-md bg-background px-4 py-2 text-sm font-medium text-secondary-foreground"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                // Add save logic here
+                setIsUpdateModalOpen(false);
+              }}
+              type="submit"
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90"
+            >
+              Save changes
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
