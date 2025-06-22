@@ -9,14 +9,14 @@ import {
   HelpCircle,
 } from "lucide-react";
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { StatsTile } from "@/components/ui/stats-tile";
 import { TablePlaceholder } from "@/components/ui/table-placeholder";
 import { cn } from "@/utils/cn";
 import { useAuth } from "@/components/Layout";
 import useRequireRole from "@/hooks/useRequireRole";
-import { fetchCommissionStatement } from "@/actions/agentActions";
+import { fetchCommissionStatement, fetchBankAccount, saveBankAccount, type BankAccountInput } from "@/actions/agentActions";
 import {
   Dialog,
   DialogContent,
@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 
 interface CommissionStats {
   total_commission: number;
@@ -67,12 +68,21 @@ const Tooltip = ({ text }: { text: string }) => {
 export default function AgentCommissions() {
   const { user, profile } = useAuth();
   const { isLoading: isAuthLoading } = useRequireRole("agent");
+  const queryClient = useQueryClient();
 
   const [dateRange, setDateRange] = React.useState<
     "all" | "mtd" | "past30" | "past90"
   >("mtd");
 
   const [isUpdateModalOpen, setIsUpdateModalOpen] = React.useState(false);
+  const [formData, setFormData] = React.useState<BankAccountInput>({
+    bank_name: "",
+    account_holder: "",
+    account_number: "",
+    branch_code: "",
+    account_type: "",
+  });
+  const [isSaving, setIsSaving] = React.useState(false);
 
   const { startDate, endDate } = React.useMemo(() => {
     const now = new Date();
@@ -110,7 +120,63 @@ export default function AgentCommissions() {
     enabled: !!user?.id,
   });
 
-  if (isAuthLoading || isStatementLoading) {
+  // Fetch bank account data
+  const { data: bankAccountData, isLoading: isBankLoading } = useQuery({
+    queryKey: ["bank-account", profile?.id],
+    queryFn: () => fetchBankAccount(profile?.id || ""),
+    enabled: !!profile?.id,
+  });
+
+  // Save bank account mutation
+  const saveBankMutation = useMutation({
+    mutationFn: (data: BankAccountInput) => 
+      saveBankAccount(profile?.id || "", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["bank-account"] });
+      setIsUpdateModalOpen(false);
+      setFormData({
+        bank_name: "",
+        account_holder: "",
+        account_number: "",
+        branch_code: "",
+        account_type: "",
+      });
+    },
+    onError: (error) => {
+      console.error("Error saving bank account:", error);
+    },
+  });
+
+  // Initialize form data when bank account data is loaded
+  React.useEffect(() => {
+    if (bankAccountData?.data) {
+      setFormData({
+        bank_name: bankAccountData.data.bank_name,
+        account_holder: bankAccountData.data.account_holder,
+        account_number: bankAccountData.data.account_number,
+        branch_code: bankAccountData.data.branch_code || "",
+        account_type: bankAccountData.data.account_type,
+      });
+    }
+  }, [bankAccountData]);
+
+  const handleInputChange = (field: keyof BankAccountInput, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const handleSaveBankAccount = async () => {
+    setIsSaving(true);
+    try {
+      await saveBankMutation.mutateAsync(formData);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (isAuthLoading || isStatementLoading || isBankLoading) {
     return (
       <div className="flex h-full w-full items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -128,11 +194,11 @@ export default function AgentCommissions() {
     };
 
   const bankDetails = {
-    accountName: profile?.full_name || user?.email,
-    accountNumber: "1234567890",
-    bankName: "FNB",
-    branchCode: "250655",
-    accountType: "Business",
+    accountName: bankAccountData?.data?.account_holder || profile?.full_name || user?.email,
+    accountNumber: bankAccountData?.data?.account_number || "Not provided",
+    bankName: bankAccountData?.data?.bank_name || "Not provided",
+    branchCode: bankAccountData?.data?.branch_code || "Not provided",
+    accountType: bankAccountData?.data?.account_type || "Not provided",
     reference: "AV-AGENT-" + user?.id.split("-")[0].toUpperCase(),
   };
 
@@ -276,8 +342,10 @@ export default function AgentCommissions() {
               </Label>
               <Input
                 id="bankName"
-                defaultValue={bankDetails.bankName}
+                value={formData.bank_name}
+                onChange={(e) => handleInputChange("bank_name", e.target.value)}
                 className="col-span-3"
+                placeholder="e.g., FNB, Standard Bank"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -286,8 +354,10 @@ export default function AgentCommissions() {
               </Label>
               <Input
                 id="accountName"
-                defaultValue={bankDetails.accountName || ""}
+                value={formData.account_holder}
+                onChange={(e) => handleInputChange("account_holder", e.target.value)}
                 className="col-span-3"
+                placeholder="Name on the bank account"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -296,8 +366,10 @@ export default function AgentCommissions() {
               </Label>
               <Input
                 id="accountNumber"
-                defaultValue={bankDetails.accountNumber}
+                value={formData.account_number}
+                onChange={(e) => handleInputChange("account_number", e.target.value)}
                 className="col-span-3"
+                placeholder="Bank account number"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -306,8 +378,10 @@ export default function AgentCommissions() {
               </Label>
               <Input
                 id="branchCode"
-                defaultValue={bankDetails.branchCode}
+                value={formData.branch_code}
+                onChange={(e) => handleInputChange("branch_code", e.target.value)}
                 className="col-span-3"
+                placeholder="Optional branch code"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -316,29 +390,27 @@ export default function AgentCommissions() {
               </Label>
               <Input
                 id="accountType"
-                defaultValue={bankDetails.accountType}
+                value={formData.account_type}
+                onChange={(e) => handleInputChange("account_type", e.target.value)}
                 className="col-span-3"
+                placeholder="e.g., Savings, Business, Cheque"
               />
             </div>
           </div>
           <DialogFooter>
-            <button
+            <Button
               onClick={() => setIsUpdateModalOpen(false)}
-              type="button"
-              className="rounded-md bg-background px-4 py-2 text-sm font-medium text-secondary-foreground"
+              variant="outline"
+              disabled={isSaving}
             >
               Cancel
-            </button>
-            <button
-              onClick={() => {
-                // Add save logic here
-                setIsUpdateModalOpen(false);
-              }}
-              type="submit"
-              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90"
+            </Button>
+            <Button
+              onClick={handleSaveBankAccount}
+              disabled={isSaving}
             >
-              Save changes
-            </button>
+              {isSaving ? "Saving..." : "Save changes"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

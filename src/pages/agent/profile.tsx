@@ -1,14 +1,23 @@
 import * as React from "react";
 import { User, Mail, Phone, Building, CreditCard } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 
 import { useAuth } from "@/components/Layout";
 import useRequireRole from "@/hooks/useRequireRole";
+import { fetchBankAccount } from "@/actions/agentActions";
 
 export default function AgentProfile() {
   const { user, profile } = useAuth();
   const { isLoading: isAuthLoading } = useRequireRole("agent");
 
-  if (isAuthLoading || !profile) {
+  // Fetch bank account data
+  const { data: bankAccountData, isLoading: isBankLoading } = useQuery({
+    queryKey: ["bank-account", profile?.id],
+    queryFn: () => fetchBankAccount(profile?.id || ""),
+    enabled: !!profile?.id,
+  });
+
+  if (isAuthLoading || isBankLoading) {
     return (
       <div className="flex h-full w-full items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -23,10 +32,10 @@ export default function AgentProfile() {
     phone: profile?.phone_number || "+27 82 000 0000",
     businessName: profile?.business_name || "Agent Business Name", // This should come from agent data
     bankDetails: {
-      bankName: profile?.bank_name || "First National Bank",
-      accountNumber: profile?.account_number || "**** **** **** 4567",
-      branchCode: profile?.branch_code || "250655",
-      accountType: profile?.account_type || "Business Cheque",
+      bankName: bankAccountData?.data?.bank_name || "Not provided",
+      accountNumber: bankAccountData?.data?.account_number || "Not provided",
+      branchCode: bankAccountData?.data?.branch_code || "Not provided",
+      accountType: bankAccountData?.data?.account_type || "Not provided",
     },
   };
 

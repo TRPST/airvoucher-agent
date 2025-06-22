@@ -233,7 +233,7 @@ export function Layout({ children, role = "admin" }: LayoutProps) {
                           borderRadius: "0.375rem",
                         }}
                       >
-                        <DropdownMenu.Item
+                        {/* <DropdownMenu.Item
                           className="flex items-center rounded-md px-3 py-2 text-sm transition-colors hover:bg-muted group outline-none border-0 focus:outline-none focus:border-0 focus:ring-0 data-[highlighted]:outline-none data-[highlighted]:bg-muted data-[highlighted]:border-0 data-[state=open]:outline-none cursor-pointer"
                           onSelect={() => {
                             // Navigate to profile based on role
@@ -256,7 +256,7 @@ export function Layout({ children, role = "admin" }: LayoutProps) {
                             </div>
                             <ChevronRight className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" />
                           </motion.div>
-                        </DropdownMenu.Item>
+                        </DropdownMenu.Item> */}
                         <DropdownMenu.Item
                           className="flex items-center rounded-md px-3 py-2 text-sm transition-colors hover:bg-muted group outline-none border-0 focus:outline-none focus:border-0 focus:ring-0 data-[highlighted]:outline-none data-[highlighted]:bg-muted data-[highlighted]:border-0 data-[state=open]:outline-none cursor-pointer"
                           onSelect={handleSignOut}
@@ -374,7 +374,7 @@ export function Layout({ children, role = "admin" }: LayoutProps) {
                         borderRadius: "0.375rem",
                       }}
                     >
-                      <DropdownMenu.Item
+                      {/* <DropdownMenu.Item
                         className="flex items-center rounded-md px-3 py-2 text-sm transition-colors hover:bg-muted group outline-none border-0 focus:outline-none focus:border-0 focus:ring-0 data-[highlighted]:outline-none data-[highlighted]:bg-muted data-[highlighted]:border-0 data-[state=open]:outline-none cursor-pointer"
                         onSelect={() => {
                           // Navigate to profile based on role
@@ -396,7 +396,7 @@ export function Layout({ children, role = "admin" }: LayoutProps) {
                           </div>
                           <ChevronRight className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" />
                         </motion.div>
-                      </DropdownMenu.Item>
+                      </DropdownMenu.Item> */}
                       <DropdownMenu.Item
                         className="flex items-center rounded-md px-3 py-2 text-sm transition-colors hover:bg-muted group outline-none border-0 focus:outline-none focus:border-0 focus:ring-0 data-[highlighted]:outline-none data-[highlighted]:bg-muted data-[highlighted]:border-0 data-[state=open]:outline-none cursor-pointer"
                         onSelect={handleSignOut}

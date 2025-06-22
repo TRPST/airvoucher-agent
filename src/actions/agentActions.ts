@@ -525,6 +525,27 @@ export type CommissionStatement = {
   paid_transactions: any[];
 };
 
+export type BankAccount = {
+  id: string;
+  profile_id: string;
+  bank_name: string;
+  account_holder: string;
+  account_number: string;
+  branch_code?: string;
+  account_type: string;
+  is_primary: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BankAccountInput = {
+  bank_name: string;
+  account_holder: string;
+  account_number: string;
+  branch_code?: string;
+  account_type: string;
+};
+
 export async function fetchCommissionStatement(
   agentId: string,
   { startDate, endDate }: { startDate: string; endDate: string }
@@ -547,6 +568,121 @@ export async function fetchCommissionStatement(
     return { data, error: null };
   } catch (err) {
     console.error("Unexpected error in fetchCommissionStatement:", err);
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
+/**
+ * Fetch bank account information for an agent
+ */
+export async function fetchBankAccount(profileId: string): Promise<{
+  data: BankAccount | null;
+  error: PostgrestError | Error | null;
+}> {
+  try {
+    const { data, error } = await supabase
+      .from("bank_accounts")
+      .select("*")
+      .eq("profile_id", profileId)
+      .eq("is_primary", true)
+      .single();
+
+    if (error) {
+      if (error.code === "PGRST116") {
+        // No rows returned - no bank account exists yet
+        return { data: null, error: null };
+      }
+      console.error("Error fetching bank account:", error);
+      return { data: null, error };
+    }
+
+    return { data, error: null };
+  } catch (err) {
+    console.error("Unexpected error in fetchBankAccount:", err);
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
+/**
+ * Save or update bank account information for an agent
+ */
+export async function saveBankAccount(
+  profileId: string,
+  bankData: BankAccountInput
+): Promise<{
+  data: BankAccount | null;
+  error: PostgrestError | Error | null;
+}> {
+  try {
+    // First, check if a bank account already exists for this profile
+    const { data: existingAccount, error: fetchError } = await supabase
+      .from("bank_accounts")
+      .select("id")
+      .eq("profile_id", profileId)
+      .eq("is_primary", true)
+      .single();
+
+    if (fetchError && fetchError.code !== "PGRST116") {
+      console.error("Error checking existing bank account:", fetchError);
+      return { data: null, error: fetchError };
+    }
+
+    let result;
+    if (existingAccount) {
+      // Update existing bank account
+      const { data, error } = await supabase
+        .from("bank_accounts")
+        .update({
+          bank_name: bankData.bank_name,
+          account_holder: bankData.account_holder,
+          account_number: bankData.account_number,
+          branch_code: bankData.branch_code,
+          account_type: bankData.account_type,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existingAccount.id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Error updating bank account:", error);
+        return { data: null, error };
+      }
+
+      result = data;
+    } else {
+      // Insert new bank account
+      const { data, error } = await supabase
+        .from("bank_accounts")
+        .insert({
+          profile_id: profileId,
+          bank_name: bankData.bank_name,
+          account_holder: bankData.account_holder,
+          account_number: bankData.account_number,
+          branch_code: bankData.branch_code,
+          account_type: bankData.account_type,
+          is_primary: true,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Error inserting bank account:", error);
+        return { data: null, error };
+      }
+
+      result = data;
+    }
+
+    return { data: result, error: null };
+  } catch (err) {
+    console.error("Unexpected error in saveBankAccount:", err);
     return {
       data: null,
       error: err instanceof Error ? err : new Error(String(err)),
