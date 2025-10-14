@@ -108,6 +108,8 @@ export default function AgentRetailers() {
               ? "bg-green-500"
               : retailer.status === "inactive"
               ? "bg-amber-500"
+              : retailer.status === "blocked"
+              ? "bg-red-600"
               : "bg-red-500"
           )}
         />
@@ -174,6 +176,7 @@ export default function AgentRetailers() {
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
               <option value="suspended">Suspended</option>
+              <option value="blocked">Blocked</option>
             </select>
           </div>
 
