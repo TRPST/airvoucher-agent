@@ -5,7 +5,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
 import { StatsTile } from "@/components/ui/stats-tile";
-import { ChartPlaceholder } from "@/components/ui/chart-placeholder";
 import { TablePlaceholder } from "@/components/ui/table-placeholder";
 import { cn } from "@/utils/cn";
 import useRequireRole from "@/hooks/useRequireRole";
@@ -14,7 +13,7 @@ import {
   fetchAgentSummary,
   fetchAgentStatements,
   updateRetailerStatus,
-  type AgentStatement,
+  type AgentRetailer,
 } from "@/actions/agentActions";
 import { useAuth } from "@/components/Layout";
 
@@ -27,7 +26,7 @@ export default function AgentDashboard() {
   const [sortBy, setSortBy] = React.useState<string>("name");
   const [sortOrder, setSortOrder] = React.useState<"asc" | "desc">("asc");
   const [statusFilter, setStatusFilter] = React.useState<string>("all");
-  const [blockingRetailerId, setBlockingRetailerId] = React.useState<string | null>(null);
+  const [updatingRetailerId, setUpdatingRetailerId] = React.useState<string | null>(null);
 
   const queryClient = useQueryClient();
 
@@ -50,31 +49,37 @@ export default function AgentDashboard() {
     enabled: !!user?.id,
   });
 
-  const blockRetailerMutation = useMutation({
-    mutationFn: async (retailerId: string) => {
+  const updateRetailerStatusMutation = useMutation({
+    mutationFn: async ({
+      retailerId,
+      nextStatus,
+    }: {
+      retailerId: string;
+      nextStatus: AgentRetailer["status"];
+    }) => {
       if (!user?.id) {
         throw new Error("Missing agent identifier");
       }
 
-      const { error } = await updateRetailerStatus(user.id, retailerId, "blocked");
+      const { error } = await updateRetailerStatus(user.id, retailerId, nextStatus);
       if (error) {
         throw error;
       }
     },
-    onMutate: (retailerId: string) => {
-      setBlockingRetailerId(retailerId);
+    onMutate: ({ retailerId }: { retailerId: string }) => {
+      setUpdatingRetailerId(retailerId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["agent-retailers", user?.id] });
     },
     onError: (error) => {
-      console.error("Failed to block retailer:", error);
+      console.error("Failed to update retailer status:", error);
       if (typeof window !== "undefined") {
-        window.alert("Failed to block retailer. Please try again.");
+        window.alert("Failed to update retailer status. Please try again.");
       }
     },
     onSettled: () => {
-      setBlockingRetailerId(null);
+      setUpdatingRetailerId(null);
     },
   });
 
@@ -91,7 +96,6 @@ export default function AgentDashboard() {
   // Get the retailers data
   const retailers = retailersData?.data || [];
   const summary = summaryData?.data;
-  const statements = statementsData?.data || [];
 
   // Apply filters and sorting
   const filteredRetailers = retailers
@@ -121,7 +125,11 @@ export default function AgentDashboard() {
       return sortOrder === "asc" ? comparison : -comparison;
     });
 
-  const handleBlockRetailer = (retailerId: string, retailerName: string) => {
+  const handleStatusChange = (
+    retailerId: string,
+    retailerName: string,
+    nextStatus: AgentRetailer["status"]
+  ) => {
     if (!user?.id) {
       if (typeof window !== "undefined") {
         window.alert("You must be signed in to manage retailers.");
@@ -129,29 +137,37 @@ export default function AgentDashboard() {
       return;
     }
 
-    if (blockingRetailerId === retailerId) {
+    if (updatingRetailerId === retailerId) {
       return;
     }
 
-    const confirmBlock =
+    const isBlocking = nextStatus === "blocked";
+    const shouldProceed =
       typeof window === "undefined"
         ? false
         : window.confirm(
-            `Block ${retailerName}? They will be prevented from transacting until unblocked.`
+            isBlocking
+              ? `Block ${retailerName}? They will be prevented from transacting until unblocked.`
+              : `Reactivate ${retailerName}? They will regain access to transact.`
           );
 
-    if (!confirmBlock) {
+    if (!shouldProceed) {
       return;
     }
 
-    blockRetailerMutation.mutate(retailerId);
+    updateRetailerStatusMutation.mutate({ retailerId, nextStatus });
   };
 
   // Format data for table
   const tableData = filteredRetailers.map((retailer) => {
-    const isBlocking = blockingRetailerId === retailer.id;
+    const isUpdating = updatingRetailerId === retailer.id;
     const isBlocked = retailer.status === "blocked";
-    const blockLabel = isBlocking ? "Blocking..." : isBlocked ? "Blocked" : "Block";
+    const nextStatus = isBlocked ? "active" : "blocked";
+    const actionLabel = isUpdating
+      ? "Updating..."
+      : isBlocked
+      ? "Reactivate"
+      : "Block";
 
     return {
       Retailer: (
@@ -215,15 +231,18 @@ export default function AgentDashboard() {
               <DropdownMenu.Separator className="my-1 h-px bg-border" />
               <DropdownMenu.Item
                 onSelect={() => {
-                  handleBlockRetailer(retailer.id, retailer.name);
+                  handleStatusChange(retailer.id, retailer.name, nextStatus);
                 }}
-                disabled={isBlocked || isBlocking}
+                disabled={isUpdating}
                 className={cn(
-                  "flex cursor-pointer select-none items-center rounded px-2 py-1.5 text-sm text-red-600 outline-none transition-colors hover:bg-red-50 focus:bg-red-50",
+                  "flex select-none items-center rounded px-2 py-1.5 text-sm outline-none transition-colors focus-visible:outline-none",
+                  isBlocked
+                    ? "text-green-600 hover:bg-green-50 focus:bg-green-50"
+                    : "text-red-600 hover:bg-red-50 focus:bg-red-50",
                   "data-[disabled]:pointer-events-none data-[disabled]:text-muted-foreground data-[disabled]:opacity-70"
                 )}
               >
-                {blockLabel}
+                {actionLabel}
               </DropdownMenu.Item>
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
