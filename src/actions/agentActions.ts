@@ -4,7 +4,7 @@ import { PostgrestError } from "@supabase/supabase-js";
 export type AgentRetailer = {
   id: string;
   name: string;
-  status: "active" | "suspended" | "inactive";
+  status: "active" | "suspended" | "inactive" | "blocked";
   balance: number;
   commission_balance: number;
   location?: string;
@@ -37,7 +37,7 @@ export type RetailerDetail = {
   email: string | null;
   contact_number: string | null;
   contact_name: string | null;
-  status: "active" | "suspended" | "inactive";
+  status: "active" | "suspended" | "inactive" | "blocked";
   balance: number;
   commission_balance: number;
   location?: string;
@@ -509,6 +509,41 @@ export async function fetchRetailerSalesSummary(
     console.error("Unexpected error in fetchRetailerSalesSummary:", err);
     return {
       data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
+/**
+ * Update a retailer's status for the current agent
+ */
+export async function updateRetailerStatus(
+  agentId: string,
+  retailerId: string,
+  status: AgentRetailer["status"]
+): Promise<{
+  error: PostgrestError | Error | null;
+}> {
+  if (!agentId) {
+    return { error: new Error("Missing agent identifier") };
+  }
+
+  try {
+    const { error } = await supabase
+      .from("retailers")
+      .update({ status })
+      .eq("id", retailerId)
+      .eq("agent_profile_id", agentId);
+
+    if (error) {
+      console.error("Error updating retailer status:", error);
+      return { error };
+    }
+
+    return { error: null };
+  } catch (err) {
+    console.error("Unexpected error updating retailer status:", err);
+    return {
       error: err instanceof Error ? err : new Error(String(err)),
     };
   }

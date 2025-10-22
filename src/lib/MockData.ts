@@ -7,7 +7,7 @@ export type Retailer = {
   balance: number;
   credit: number;
   commission: number;
-  status: "active" | "inactive" | "suspended";
+  status: "active" | "inactive" | "suspended" | "blocked";
   agentId: string;
   commissionGroupId: string;
   createdAt: string;

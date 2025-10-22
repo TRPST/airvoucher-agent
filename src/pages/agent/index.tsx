@@ -1,14 +1,20 @@
 import * as React from "react";
-import { Users, TrendingUp, Activity, Search, ArrowUpDown, Filter } from "lucide-react";
+import { Users, TrendingUp, Activity, Search, ArrowUpDown, Filter, MoreHorizontal } from "lucide-react";
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
 import { StatsTile } from "@/components/ui/stats-tile";
-import { ChartPlaceholder } from "@/components/ui/chart-placeholder";
 import { TablePlaceholder } from "@/components/ui/table-placeholder";
 import { cn } from "@/utils/cn";
 import useRequireRole from "@/hooks/useRequireRole";
-import { fetchMyRetailers, fetchAgentSummary, fetchAgentStatements, type AgentStatement } from "@/actions/agentActions";
+import {
+  fetchMyRetailers,
+  fetchAgentSummary,
+  fetchAgentStatements,
+  updateRetailerStatus,
+  type AgentRetailer,
+} from "@/actions/agentActions";
 import { useAuth } from "@/components/Layout";
 
 export default function AgentDashboard() {
@@ -20,6 +26,9 @@ export default function AgentDashboard() {
   const [sortBy, setSortBy] = React.useState<string>("name");
   const [sortOrder, setSortOrder] = React.useState<"asc" | "desc">("asc");
   const [statusFilter, setStatusFilter] = React.useState<string>("all");
+  const [updatingRetailerId, setUpdatingRetailerId] = React.useState<string | null>(null);
+
+  const queryClient = useQueryClient();
 
   // Fetch agent data
   const { data: retailersData, isLoading: isRetailersLoading } = useQuery({
@@ -40,6 +49,40 @@ export default function AgentDashboard() {
     enabled: !!user?.id,
   });
 
+  const updateRetailerStatusMutation = useMutation({
+    mutationFn: async ({
+      retailerId,
+      nextStatus,
+    }: {
+      retailerId: string;
+      nextStatus: AgentRetailer["status"];
+    }) => {
+      if (!user?.id) {
+        throw new Error("Missing agent identifier");
+      }
+
+      const { error } = await updateRetailerStatus(user.id, retailerId, nextStatus);
+      if (error) {
+        throw error;
+      }
+    },
+    onMutate: ({ retailerId }: { retailerId: string }) => {
+      setUpdatingRetailerId(retailerId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agent-retailers", user?.id] });
+    },
+    onError: (error) => {
+      console.error("Failed to update retailer status:", error);
+      if (typeof window !== "undefined") {
+        window.alert("Failed to update retailer status. Please try again.");
+      }
+    },
+    onSettled: () => {
+      setUpdatingRetailerId(null);
+    },
+  });
+
   // Show loading state while checking authentication or loading data
   if (isAuthLoading || isRetailersLoading || isSummaryLoading || isStatementsLoading) {
     return (
@@ -53,7 +96,6 @@ export default function AgentDashboard() {
   // Get the retailers data
   const retailers = retailersData?.data || [];
   const summary = summaryData?.data;
-  const statements = statementsData?.data || [];
 
   // Apply filters and sorting
   const filteredRetailers = retailers
@@ -83,47 +125,131 @@ export default function AgentDashboard() {
       return sortOrder === "asc" ? comparison : -comparison;
     });
 
+  const handleStatusChange = (
+    retailerId: string,
+    retailerName: string,
+    nextStatus: AgentRetailer["status"]
+  ) => {
+    if (!user?.id) {
+      if (typeof window !== "undefined") {
+        window.alert("You must be signed in to manage retailers.");
+      }
+      return;
+    }
+
+    if (updatingRetailerId === retailerId) {
+      return;
+    }
+
+    const isBlocking = nextStatus === "blocked";
+    const shouldProceed =
+      typeof window === "undefined"
+        ? false
+        : window.confirm(
+            isBlocking
+              ? `Block ${retailerName}? They will be prevented from transacting until unblocked.`
+              : `Reactivate ${retailerName}? They will regain access to transact.`
+          );
+
+    if (!shouldProceed) {
+      return;
+    }
+
+    updateRetailerStatusMutation.mutate({ retailerId, nextStatus });
+  };
+
   // Format data for table
-  const tableData = filteredRetailers.map((retailer) => ({
-    Retailer: (
-      <div className="flex items-center gap-3">
-        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary">
-          {retailer.name.charAt(0)}
-        </div>
-        <div>
-          <div className="font-medium">{retailer.name}</div>
-          <div className="text-xs text-muted-foreground">
-            {retailer.location}
+  const tableData = filteredRetailers.map((retailer) => {
+    const isUpdating = updatingRetailerId === retailer.id;
+    const isBlocked = retailer.status === "blocked";
+    const nextStatus = isBlocked ? "active" : "blocked";
+    const actionLabel = isUpdating
+      ? "Updating..."
+      : isBlocked
+      ? "Reactivate"
+      : "Block";
+
+    return {
+      Retailer: (
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary">
+            {retailer.name.charAt(0)}
+          </div>
+          <div>
+            <div className="font-medium">{retailer.name}</div>
+            <div className="text-xs text-muted-foreground">
+              {retailer.location}
+            </div>
           </div>
         </div>
-      </div>
-    ),
-    "Total Sales": `R ${retailer.total_sales?.toFixed(2) ?? "0.00"}`,
-    Commission: `R ${retailer.commission_earned?.toFixed(2) ?? "0.00"}`,
-    Status: (
-      <div className="flex items-center">
-        <div
-          className={cn(
-            "mr-2 h-2 w-2 rounded-full",
-            retailer.status === "active"
-              ? "bg-green-500"
-              : retailer.status === "inactive"
-              ? "bg-amber-500"
-              : "bg-red-500"
-          )}
-        />
-        <span className="text-xs capitalize">{retailer.status}</span>
-      </div>
-    ),
-    Actions: (
-      <a
-        href={`/agent/retailers/${retailer.id}`}
-        className="rounded-md px-2.5 py-1 text-xs text-primary hover:bg-primary/10"
-      >
-        View Details
-      </a>
-    ),
-  }));
+      ),
+      "Total Sales": `R ${retailer.total_sales?.toFixed(2) ?? "0.00"}`,
+      Commission: `R ${retailer.commission_earned?.toFixed(2) ?? "0.00"}`,
+      Status: (
+        <div className="flex items-center">
+          <div
+            className={cn(
+              "mr-2 h-2 w-2 rounded-full",
+              retailer.status === "active"
+                ? "bg-green-500"
+                : retailer.status === "inactive"
+                ? "bg-amber-500"
+                : retailer.status === "blocked"
+                ? "bg-red-600"
+                : "bg-red-500"
+            )}
+          />
+          <span className="text-xs capitalize">{retailer.status}</span>
+        </div>
+      ),
+      Actions: (
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button
+              type="button"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              aria-label={`Actions for ${retailer.name}`}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              side="bottom"
+              align="end"
+              sideOffset={4}
+              className="z-50 min-w-[160px] rounded-md border border-border bg-popover p-1 text-sm text-popover-foreground shadow-sm focus:outline-none"
+            >
+              <DropdownMenu.Item asChild>
+                <a
+                  href={`/agent/retailers/${retailer.id}`}
+                  className="flex w-full cursor-pointer select-none items-center rounded px-2 py-1.5 text-sm text-foreground outline-none transition-colors hover:bg-muted focus:bg-muted"
+                >
+                  View Details
+                </a>
+              </DropdownMenu.Item>
+              <DropdownMenu.Separator className="my-1 h-px bg-border" />
+              <DropdownMenu.Item
+                onSelect={() => {
+                  handleStatusChange(retailer.id, retailer.name, nextStatus);
+                }}
+                disabled={isUpdating}
+                className={cn(
+                  "flex select-none items-center rounded px-2 py-1.5 text-sm outline-none transition-colors focus-visible:outline-none",
+                  isBlocked
+                    ? "text-green-600 hover:bg-green-50 focus:bg-green-50"
+                    : "text-red-600 hover:bg-red-50 focus:bg-red-50",
+                  "data-[disabled]:pointer-events-none data-[disabled]:text-muted-foreground data-[disabled]:opacity-70"
+                )}
+              >
+                {actionLabel}
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      ),
+    };
+  });
 
   const handleSort = (column: string) => {
     if (sortBy === column) {
@@ -206,6 +332,7 @@ export default function AgentDashboard() {
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
                 <option value="suspended">Suspended</option>
+                <option value="blocked">Blocked</option>
               </select>
             </div>
 
