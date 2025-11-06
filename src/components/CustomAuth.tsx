@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { supabase } from "@/utils/supabase/client";
 import { useRouter } from "next/router";
+import Link from "next/link";
 import { getUserRole, signOutUser } from "@/utils/userActions";
 
 interface CustomAuthProps {
@@ -96,7 +97,7 @@ export function CustomAuth({ role }: CustomAuthProps) {
         </div>
       )}
 
-      <div className="mt-6">
+      <div className="mt-6 flex flex-col gap-4">
         <button
           type="submit"
           disabled={isLoading}
@@ -111,6 +112,13 @@ export function CustomAuth({ role }: CustomAuthProps) {
             <span>Sign In</span>
           )}
         </button>
+
+        <Link
+          href="/auth/forgot-password"
+          className="text-center text-sm text-muted-foreground transition-colors hover:text-foreground"
+        >
+          Forgot your password?
+        </Link>
       </div>
     </form>
   );
